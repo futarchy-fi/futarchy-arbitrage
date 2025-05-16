@@ -147,10 +147,10 @@ def parse_split_results(results: List[Dict[str, Any]], w3: Web3) -> None:
 # ---------- CLI entry for quick testing ----------
 
 def _build_w3_from_env() -> Web3:
-    """Return a Web3 instance using RPC_URL (fallback to GNOSIS_RPC_URL)."""
-    rpc_url = os.getenv("RPC_URL") or os.getenv("GNOSIS_RPC_URL")
-    if rpc_url is None:
-        raise EnvironmentError("Set RPC_URL or GNOSIS_RPC_URL in environment.")
+    """Return a Web3 instance using RPC_URL (fallbacks to config)."""
+    from config import DEFAULT_RPC_URLS
+
+    rpc_url = os.getenv("RPC_URL") or os.getenv("GNOSIS_RPC_URL") or DEFAULT_RPC_URLS[0]
     w3 = Web3(Web3.HTTPProvider(rpc_url))
     # Inject POA middleware for Gnosis
     from web3.middleware import geth_poa_middleware
@@ -169,20 +169,15 @@ def main():  # pragma: no cover
     parser.add_argument("--amount", type=float, default=1.0, help="Collateral amount in ether to split")
     args = parser.parse_args()
 
-    # Required env vars
-    router_addr = os.getenv("FUTARCHY_ROUTER_ADDRESS")
-    proposal_addr = os.getenv("FUTARCHY_PROPOSAL_ADDRESS")
-    collateral_addr = os.getenv("COLLATERAL_TOKEN_ADDRESS")
+    from config import CONTRACT_ADDRESSES, TOKEN_CONFIG
+
+    router_addr = CONTRACT_ADDRESSES["futarchyRouter"]
+    proposal_addr = CONTRACT_ADDRESSES["market"]
+    collateral_addr = TOKEN_CONFIG["currency"]["address"]
     sender = os.getenv("WALLET_ADDRESS") or os.getenv("SENDER_ADDRESS")
 
-    missing = [n for n, v in {
-        "FUTARCHY_ROUTER_ADDRESS": router_addr,
-        "FUTARCHY_PROPOSAL_ADDRESS": proposal_addr,
-        "COLLATERAL_TOKEN_ADDRESS": collateral_addr,
-        "WALLET_ADDRESS/SENDER_ADDRESS": sender,
-    }.items() if v is None]
-    if missing:
-        logger.error("Missing env vars: %s", ", ".join(missing))
+    if sender is None:
+        logger.error("Missing env var: WALLET_ADDRESS/SENDER_ADDRESS")
         return
 
     w3 = _build_w3_from_env()

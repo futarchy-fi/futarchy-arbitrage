@@ -5,14 +5,16 @@ from decimal import Decimal
 from typing import Any, Dict, List, Optional
 from web3 import Web3
 # NOTE: Assuming the ABI location is correct relative to the new structure
-from config.abis.swapr import SWAPR_ROUTER_ABI 
+from config.abis.swapr import SWAPR_ROUTER_ABI
+from config import DEFAULT_RPC_URLS, CONTRACT_ADDRESSES
 from .tenderly_api import TenderlyClient
 
-w3 = Web3(Web3.HTTPProvider(os.environ["RPC_URL"]))
+RPC_URL = os.getenv("RPC_URL", DEFAULT_RPC_URLS[0])
+w3 = Web3(Web3.HTTPProvider(RPC_URL))
 # Keccak topic for ERC20 Transfer(address,address,uint256)
 ERC20_TRANSFER_TOPIC = Web3.keccak(text="Transfer(address,address,uint256)").hex()
 
-router_addr = w3.to_checksum_address(os.environ["SWAPR_ROUTER_ADDRESS"])
+router_addr = w3.to_checksum_address(CONTRACT_ADDRESSES["swaprRouterV3"])
 router = w3.eth.contract(address=router_addr, abi=SWAPR_ROUTER_ABI)
 
 client = TenderlyClient(w3)

@@ -148,9 +148,9 @@ def _get_router(w3: Web3, router_addr: str | None = None):
     The address is taken from the BALANCER_ROUTER_ADDRESS env var unless
     explicitly provided.
     """
-    address = router_addr or os.getenv("BALANCER_ROUTER_ADDRESS")
-    if address is None:
-        raise EnvironmentError("Set BALANCER_ROUTER_ADDRESS env var or pass router_addr.")
+    from config import CONTRACT_ADDRESSES
+
+    address = router_addr or os.getenv("BALANCER_ROUTER_ADDRESS", CONTRACT_ADDRESSES["batchRouter"])
     return w3.eth.contract(address=w3.to_checksum_address(address), abi=BALANCER_ROUTER_ABI)
 
 
@@ -425,10 +425,10 @@ def parse_simulated_swap_results(results: List[Dict[str, Any]], w3: Web3) -> Opt
 # -----------------------------------------------------------------------------
 
 def _build_w3_from_env() -> Web3:
-    """Return Web3 instance connected to the RPC endpoint in the GNOSIS_RPC_URL env var."""
-    rpc_url = os.getenv("GNOSIS_RPC_URL") or os.getenv("RPC_URL")
-    if rpc_url is None:
-        raise EnvironmentError("Set GNOSIS_RPC_URL or RPC_URL in environment.")
+    """Return Web3 instance connected to the RPC endpoint."""
+    from config import DEFAULT_RPC_URLS
+
+    rpc_url = os.getenv("GNOSIS_RPC_URL") or os.getenv("RPC_URL") or DEFAULT_RPC_URLS[0]
     w3 = Web3(Web3.HTTPProvider(rpc_url))
     from web3.middleware import geth_poa_middleware
 

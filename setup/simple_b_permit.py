@@ -8,14 +8,13 @@ from pathlib import Path
 
 # --- Configuration ---
 # Load environment variables
+from config import DEFAULT_RPC_URLS, CONTRACT_ADDRESSES, TOKEN_CONFIG
+
 PRIVATE_KEY = os.getenv("PRIVATE_KEY")
 USER_ADDRESS = os.getenv("USER_ADDRESS")
-GNOSIS_RPC_URL = os.getenv("RPC_URL")
-BATCH_ROUTER_ADDRESS = os.getenv("BALANCER_ROUTER_ADDRESS")
-if not BATCH_ROUTER_ADDRESS:
-    # Default Balancer Vault address on Gnosis Chain
-    BATCH_ROUTER_ADDRESS = "0xBA12222222228d8Ba445958a75a0704d566BF2C8"
-PERMIT2_ADDRESS = "0x000000000022d473030f116ddee9f6b43ac78ba3"
+GNOSIS_RPC_URL = os.getenv("RPC_URL", DEFAULT_RPC_URLS[0])
+BATCH_ROUTER_ADDRESS = os.getenv("BALANCER_ROUTER_ADDRESS", CONTRACT_ADDRESSES["batchRouter"])
+PERMIT2_ADDRESS = CONTRACT_ADDRESSES["permit2"]
 CHAIN_ID = 100
 
 def load_abi():
@@ -49,9 +48,9 @@ def prepare_permit_data():
     user_address = Web3.to_checksum_address(USER_ADDRESS)
     batch_router_address = Web3.to_checksum_address(BATCH_ROUTER_ADDRESS)
     permit2_address = Web3.to_checksum_address(PERMIT2_ADDRESS)
-    company_token_address = Web3.to_checksum_address(os.getenv("GNO_TOKEN_ADDRESS"))
-    collateral_token_address = Web3.to_checksum_address(os.getenv("SDAI_TOKEN_ADDRESS"))
-    vault_address = Web3.to_checksum_address(os.getenv("BALANCER_VAULT_ADDRESS"))
+    company_token_address = Web3.to_checksum_address(TOKEN_CONFIG["company"]["address"])
+    collateral_token_address = Web3.to_checksum_address(TOKEN_CONFIG["currency"]["address"])
+    vault_address = Web3.to_checksum_address(CONTRACT_ADDRESSES["balancerVault"])
     
     # -------- Nonce ---------------------------------------------------
     # Generate a unique 48-bit nonce every run (Permit2 requirement)
