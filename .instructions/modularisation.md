@@ -394,26 +394,26 @@ import time
 import json
 from web3 import Web3
 from dotenv import load_dotenv
-# from futarchy.experimental.exchanges.sushiswap import SushiSwapExchange # Might be unused now
-# from futarchy.experimental.exchanges.passthrough_router import PassthroughRouter # Now used internally by SwapManager
+# from .exchanges.sushiswap import SushiSwapExchange # Might be unused now
+# from .exchanges.passthrough_router import PassthroughRouter # Now used internally by SwapManager
 
 # --- Core and Strategy Imports ---
 # Add the project root to the path if necessary, or adjust imports based on your structure
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
-from futarchy.experimental.core.futarchy_bot import FutarchyBot
-from futarchy.experimental.strategies.monitoring import simple_monitoring_strategy
-from futarchy.experimental.strategies.probability import probability_threshold_strategy
-from futarchy.experimental.strategies.arbitrage import arbitrage_strategy
+from .core.futarchy_bot import FutarchyBot
+from .strategies.monitoring import simple_monitoring_strategy
+from .strategies.probability import probability_threshold_strategy
+from .strategies.arbitrage import arbitrage_strategy
 
 # --- Manager Imports ---
-from futarchy.experimental.managers import (
+from .managers import (
     SwapManager,
     ConditionalTokenManager,
     GnoWrapper
 )
 
 # --- Configuration Imports ---
-from futarchy.experimental.config.constants import (
+from .config.constants import (
     CONTRACT_ADDRESSES,
     TOKEN_CONFIG,
     POOL_CONFIG_YES,
@@ -433,8 +433,8 @@ from eth_account.signers.local import LocalAccount
 import math
 
 # Comment out direct action imports if logic is fully moved to managers
-# from futarchy.experimental.actions.conditional_token_actions import sell_sdai_yes, buy_sdai_yes
-# from futarchy.experimental.exchanges.balancer.swap import BalancerSwapHandler # Now used internally by SwapManager
+# from .actions.conditional_token_actions import sell_sdai_yes, buy_sdai_yes
+# from .exchanges.balancer.swap import BalancerSwapHandler # Now used internally by SwapManager
 
 # --- Argument Parsing (Keep as is) ---
 def parse_args():

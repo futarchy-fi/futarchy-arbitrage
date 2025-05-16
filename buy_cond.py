@@ -1,7 +1,7 @@
 import os, time, json
 from decimal import Decimal
 from eth_account import Account
-from .helpers.swapr_swap import (
+from helpers.swapr_swap import (
     w3,
     client,
     build_exact_in_tx,
@@ -9,14 +9,14 @@ from .helpers.swapr_swap import (
     parse_simulated_swap_results as parse_simulated_swapr_results,
     parse_broadcasted_swap_results as parse_broadcasted_swapr_results,
 )
-from .helpers.split_position import build_split_tx
-from .helpers.merge_position import build_merge_tx
-from .helpers.balancer_swap import (
+from helpers.split_position import build_split_tx
+from helpers.merge_position import build_merge_tx
+from helpers.balancer_swap import (
     build_sell_gno_to_sdai_swap_tx,
     parse_simulated_swap_results as parse_simulated_balancer_results,
     parse_broadcasted_swap_results as parse_broadcasted_balancer_results,
 )
-from .helpers.blockchain_sender import send_tenderly_tx_onchain
+from helpers.blockchain_sender import send_tenderly_tx_onchain
 
 acct = Account.from_key(os.environ["PRIVATE_KEY"])
 
@@ -469,7 +469,7 @@ if __name__ == "__main__":
     num_script_args = len(sys.argv) - 1
 
     if num_script_args == 0:
-        print("Usage: python -m futarchy.experimental.exchanges.simulator.simulator <amount> [<gno_amount>] [<liquidate_conditional_sdai_amount>]")
+        print("Usage: python -m from .exchanges.simulator.simulator <amount> [<gno_amount>] [<liquidate_conditional_sdai_amount>]")
         sys.exit(1)
     
     # All valid paths require at least the first argument 'amount'
@@ -507,5 +507,5 @@ if __name__ == "__main__":
         print(f"Result: {result}")
     else: # num_script_args > 3 or any other unexpected count
         print("Error: Invalid number of arguments.")
-        print("Usage: python -m futarchy.experimental.exchanges.simulator.simulator <amount> [<gno_amount>] [<liquidate_conditional_sdai_amount>]")
+        print("Usage: python -m from .exchanges.simulator.simulator <amount> [<gno_amount>] [<liquidate_conditional_sdai_amount>]")
         sys.exit(1)

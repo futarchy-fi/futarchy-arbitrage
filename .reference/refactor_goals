@@ -4,10 +4,10 @@ Here’s some constructive feedback on your script:
 
 - **Single monolithic file**: The script has grown quite large. Consider splitting it into smaller modules—for example, separate your command-line parsing, the main entry logic, and your various strategy functions. This makes the code more maintainable.
 
-- **Imports**: You have a fair number of imports, many of which reference your `futarchy.experimental` structure. If you haven’t already, consider grouping these or aliasing them to clarify roles:
+- **Imports**: You have a fair number of imports, many of which reference your `from ` structure. If you haven’t already, consider grouping these or aliasing them to clarify roles:
   ```python
-  from futarchy.experimental.core.futarchy_bot import FutarchyBot
-  from futarchy.experimental.exchanges.sushiswap import SushiSwapExchange
+  from .core.futarchy_bot import FutarchyBot
+  from .exchanges.sushiswap import SushiSwapExchange
   ...
   ```
   Grouping them together at the top helps maintain a logical order (e.g., standard library imports, third-party imports, then local-project imports).
