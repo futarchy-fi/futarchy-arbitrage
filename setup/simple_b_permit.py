@@ -1,6 +1,7 @@
 import os
 import json
 from web3 import Web3, HTTPProvider
+import secrets
 from eth_account import Account
 from eth_account.messages import encode_structured_data
 from pathlib import Path
@@ -24,7 +25,7 @@ def load_abi():
     falls back to a project-root `.reference` directory.
     """
     local_path = Path(__file__).parent / ".reference" / "balancer_router.abi.json"
-    root_path = Path(__file__).resolve().parent.parent.parent / ".reference" / "balancer_router.abi.json"
+    root_path = Path(__file__).resolve().parent.parent / ".reference" / "balancer_router.abi.json"
 
     for candidate in (local_path, root_path):
         if candidate.exists():
@@ -48,20 +49,26 @@ def prepare_permit_data():
     user_address = Web3.to_checksum_address(USER_ADDRESS)
     batch_router_address = Web3.to_checksum_address(BATCH_ROUTER_ADDRESS)
     permit2_address = Web3.to_checksum_address(PERMIT2_ADDRESS)
-    token_address = Web3.to_checksum_address(os.getenv("TOKEN_ADDRESS"))
-    vault_address = Web3.to_checksum_address(os.getenv("VAULT_ADDRESS"))
+    company_token_address = Web3.to_checksum_address(os.getenv("GNO_TOKEN_ADDRESS"))
+    collateral_token_address = Web3.to_checksum_address(os.getenv("SDAI_TOKEN_ADDRESS"))
+    vault_address = Web3.to_checksum_address(os.getenv("BALANCER_VAULT_ADDRESS"))
+    
+    # -------- Nonce ---------------------------------------------------
+    # Generate a unique 48-bit nonce every run (Permit2 requirement)
+    nonce = secrets.randbits(48)
+    # ------------------------------------------------------------------
     
     print(f"Using account: {user_address}")
     print(f"Batch router address: {batch_router_address}")
     print(f"Permit2 address: {permit2_address}")
-    print(f"Token address: {token_address}")
+    print(f"Token company_token_address: {company_token_address}")
+    print(f"Token collateral_token_address: {collateral_token_address}")
     print(f"Vault address: {vault_address}")
     
     # Permit2 typed data structure
     typed_data = {
         "types": {
             "EIP712Domain": [
-                {"name": "name", "type": "string"},
                 {"name": "chainId", "type": "uint256"},
                 {"name": "verifyingContract", "type": "address"}
             ],
@@ -78,21 +85,28 @@ def prepare_permit_data():
             ]
         },
         "domain": {
-            "name": "Permit2",
             "chainId": CHAIN_ID,
             "verifyingContract": permit2_address
         },
         "primaryType": "PermitBatch",
         "message": {
             "details": [
+                # Commenting out company token and using only collateral token
+                # {
+                #     "token": company_token_address,
+                #     "amount": int(os.getenv("AMOUNT")),
+                #     "expiration": int(os.getenv("EXPIRATION")),
+                #     "nonce": nonce
+                # },
                 {
-                    "token": token_address,
+                    "token": collateral_token_address,
                     "amount": int(os.getenv("AMOUNT")),
                     "expiration": int(os.getenv("EXPIRATION")),
-                    "nonce": int(os.getenv("NONCE"))
+                    "nonce": nonce
                 }
             ],
-            "spender": vault_address,
+            # the router will be the spender when it later calls Permit2.transferFrom
+            "spender": batch_router_address,
             "sigDeadline": int(os.getenv("SIG_DEADLINE"))
         }
     }
@@ -100,10 +114,18 @@ def prepare_permit_data():
     print("Permit parameters:")
     print(f"  Amount: {os.getenv('AMOUNT')}")
     print(f"  Expiration: {os.getenv('EXPIRATION')}")
-    print(f"  Nonce: {os.getenv('NONCE')}")
+    print(f"  Nonce: {nonce}")
     print(f"  Signature Deadline: {os.getenv('SIG_DEADLINE')}")
     
-    return typed_data, user_address, batch_router_address, token_address, vault_address
+    return (
+        typed_data,
+        user_address,
+        batch_router_address,
+        collateral_token_address,
+        company_token_address,
+        vault_address,
+        nonce,
+    )
 
 from eth_account.messages import encode_structured_data as _encode_eip712
 
@@ -118,13 +140,38 @@ def sign_permit_message(w3, typed_data):
     print(f"Message signed with signature: {permit2_signature.hex()[:20]}...{permit2_signature.hex()[-20:]}")
     return permit2_signature
 
-def build_and_send_transaction(w3, router, user_address, batch_router_address, token_address, vault_address, permit2_signature):
+def build_and_send_transaction(
+    w3,
+    router,
+    user_address,
+    batch_router_address,
+    collateral_token_address,
+    company_token_address,
+    vault_address,
+    permit2_signature,
+    nonce,
+):
     """Build and send the permitBatchAndCall transaction."""
     print("\n--- Building Transaction ---")
     
     # Create the permit batch tuple for the contract call
-    permit_batch_details = [(token_address, int(os.getenv("AMOUNT")), int(os.getenv("EXPIRATION")), int(os.getenv("NONCE")))]
-    permit_batch = (permit_batch_details, vault_address, int(os.getenv("SIG_DEADLINE")))
+    # Keep the same order that was signed in `prepare_permit_data`
+    permit_batch_details = [
+        # Commenting out company token and using only collateral token
+        # (
+        #     company_token_address,
+        #     int(os.getenv("AMOUNT")),
+        #     int(os.getenv("EXPIRATION")),
+        #     nonce,
+        # ),
+        (
+            collateral_token_address,
+            int(os.getenv("AMOUNT")),
+            int(os.getenv("EXPIRATION")),
+            nonce,
+        ),
+    ]
+    permit_batch = (permit_batch_details, batch_router_address, int(os.getenv("SIG_DEADLINE")))
     
     # Get current gas price with a small buffer for faster inclusion
     gas_price = int(w3.eth.gas_price * 1.1)
@@ -196,15 +243,22 @@ def main():
         router = w3.eth.contract(address=Web3.to_checksum_address(BATCH_ROUTER_ADDRESS), abi=abi)
         
         # Prepare permit data
-        typed_data, user_address, batch_router_address, token_address, vault_address = prepare_permit_data()
+        typed_data, user_address, batch_router_address, collateral_token_address, company_token_address, vault_address, nonce = prepare_permit_data()
         
         # Sign permit message
         permit2_signature = sign_permit_message(w3, typed_data)
         
         # Build and send transaction
         receipt = build_and_send_transaction(
-            w3, router, user_address, batch_router_address, 
-            token_address, vault_address, permit2_signature
+            w3,
+            router,
+            user_address,
+            batch_router_address,
+            collateral_token_address,
+            company_token_address,
+            vault_address,
+            permit2_signature,
+            nonce,
         )
         
         print("\n=== Process Complete ===")
