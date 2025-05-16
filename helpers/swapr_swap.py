@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import Any, Dict, List, Optional
 from web3 import Web3
 # NOTE: Assuming the ABI location is correct relative to the new structure
-from futarchy.experimental.config.abis.swapr import SWAPR_ROUTER_ABI 
+from config.abis.swapr import SWAPR_ROUTER_ABI 
 from .tenderly_api import TenderlyClient
 
 w3 = Web3(Web3.HTTPProvider(os.environ["RPC_URL"]))

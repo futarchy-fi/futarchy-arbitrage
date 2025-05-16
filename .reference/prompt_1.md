@@ -84,9 +84,9 @@ Usage (example):
 
 ```python
 from web3 import Web3
-from futarchy.experimental.config.abis.futarchy import FUTARCHY_ROUTER_ABI
-from futarchy.experimental.exchanges.simulator.tenderly_api import TenderlyClient
-from futarchy.experimental.exchanges.simulator.helpers.split_position import (
+from .config.abis.futarchy import FUTARCHY_ROUTER_ABI
+from .exchanges.simulator.tenderly_api import TenderlyClient
+from .exchanges.simulator.helpers.split_position import (
     build_split_tx,
     simulate_split,
 )
@@ -115,7 +115,7 @@ import os
 from web3 import Web3
 from decimal import Decimal
 
-from futarchy.experimental.config.abis.futarchy import FUTARCHY_ROUTER_ABI
+from .config.abis.futarchy import FUTARCHY_ROUTER_ABI
 from ..tenderly_api import TenderlyClient
 
 __all__ = [
