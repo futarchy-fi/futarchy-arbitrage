@@ -7,9 +7,9 @@ Usage (example):
 
 ```python
 from web3 import Web3
-from futarchy.experimental.config.abis.futarchy import FUTARCHY_ROUTER_ABI
-from futarchy.experimental.exchanges.simulator.tenderly_api import TenderlyClient
-from futarchy.experimental.exchanges.simulator.helpers.merge_position import (
+from .config.abis.futarchy import FUTARCHY_ROUTER_ABI
+from .exchanges.simulator.tenderly_api import TenderlyClient
+from .exchanges.simulator.helpers.merge_position import (
     build_merge_tx,
     simulate_merge,
 )
@@ -39,7 +39,7 @@ from decimal import Decimal
 from typing import Any, Dict, List, Optional
 from web3 import Web3
 
-from futarchy.experimental.config.abis.futarchy import FUTARCHY_ROUTER_ABI
+from config.abis.futarchy import FUTARCHY_ROUTER_ABI
 from .tenderly_api import TenderlyClient
 
 logger = logging.getLogger(__name__)
