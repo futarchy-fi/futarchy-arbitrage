@@ -8,6 +8,7 @@ env/
 *.egg-info/
 *.egg-info/*
 .DS_Store
+*~
 
 # Temporary files
 *_temp.py
