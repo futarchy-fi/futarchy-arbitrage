@@ -18,19 +18,20 @@ from helpers.balancer_swap import (
     parse_broadcasted_swap_results as parse_broadcasted_balancer_results,
 )
 from helpers.blockchain_sender import send_tenderly_tx_onchain
+from config import TOKEN_CONFIG, CONTRACT_ADDRESSES
 
 acct = Account.from_key(os.environ["PRIVATE_KEY"])
 
-token_yes_in = w3.to_checksum_address(os.environ["SWAPR_GNO_YES_ADDRESS"])
-token_yes_out = w3.to_checksum_address(os.environ["SWAPR_SDAI_YES_ADDRESS"])
-token_no_in = w3.to_checksum_address(os.environ["SWAPR_GNO_NO_ADDRESS"])
-token_no_out = w3.to_checksum_address(os.environ["SWAPR_SDAI_NO_ADDRESS"])
+token_yes_in = w3.to_checksum_address(TOKEN_CONFIG["company"]["yes_address"])
+token_yes_out = w3.to_checksum_address(TOKEN_CONFIG["currency"]["yes_address"])
+token_no_in = w3.to_checksum_address(TOKEN_CONFIG["company"]["no_address"])
+token_no_out = w3.to_checksum_address(TOKEN_CONFIG["currency"]["no_address"])
 
 # --- Futarchy splitPosition parameters ---------------------------------------
-router_addr = w3.to_checksum_address(os.environ["FUTARCHY_ROUTER_ADDRESS"])
-proposal_addr = w3.to_checksum_address(os.environ["FUTARCHY_PROPOSAL_ADDRESS"])
-collateral_addr = w3.to_checksum_address(os.environ["SDAI_TOKEN_ADDRESS"])
-gno_collateral_addr = w3.to_checksum_address(os.environ["GNO_TOKEN_ADDRESS"])
+router_addr = w3.to_checksum_address(CONTRACT_ADDRESSES["futarchyRouter"])
+proposal_addr = w3.to_checksum_address(CONTRACT_ADDRESSES["market"])
+collateral_addr = w3.to_checksum_address(TOKEN_CONFIG["currency"]["address"])
+gno_collateral_addr = w3.to_checksum_address(TOKEN_CONFIG["company"]["address"])
 
 # --------------------------------------------------------------------------- #
 # On-chain sender helper                                                      #
@@ -133,8 +134,8 @@ def build_liquidate_remaining_conditional_sdai_tx(amount: float, is_yes: bool):
         amount_in_wei = w3.to_wei(Decimal(amount), "ether")
         min_amount_out_wei = 1  # minimal out to avoid reverting on 0
 
-        in_token = w3.to_checksum_address(os.environ["SWAPR_SDAI_YES_ADDRESS"])
-        out_token = w3.to_checksum_address(os.environ["SDAI_TOKEN_ADDRESS"])
+        in_token = w3.to_checksum_address(TOKEN_CONFIG["currency"]["yes_address"])
+        out_token = w3.to_checksum_address(TOKEN_CONFIG["currency"]["address"])
 
         return build_exact_in_tx(
             in_token,
@@ -152,8 +153,8 @@ def build_liquidate_remaining_conditional_sdai_tx(amount: float, is_yes: bool):
         max_in_sdai_wei = int(amount_out_yes_wei * 1.2)
 
         buy_tx = build_exact_out_tx(
-            w3.to_checksum_address(os.environ["SDAI_TOKEN_ADDRESS"]),    # tokenIn  (sDAI)
-            w3.to_checksum_address(os.environ["SWAPR_SDAI_YES_ADDRESS"]),# tokenOut (sDAI-YES)
+            w3.to_checksum_address(TOKEN_CONFIG["currency"]["address"]),    # tokenIn  (sDAI)
+            w3.to_checksum_address(TOKEN_CONFIG["currency"]["yes_address"]),# tokenOut (sDAI-YES)
             amount_out_yes_wei,                                          # exact-out
             max_in_sdai_wei,                                             # slippage buffer
             acct.address,

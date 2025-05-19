@@ -3,9 +3,10 @@ import sys
 from web3 import Web3
 from eth_account import Account
 from typing import Optional
+from config import DEFAULT_RPC_URLS
 
-# Use the same env vars that the rest of the code base already relies on.
-RPC_URL = os.getenv("RPC_URL")
+# Use env var if provided, otherwise fall back to config
+RPC_URL = os.getenv("RPC_URL", DEFAULT_RPC_URLS[0])
 PRIVATE_KEY = os.getenv("PRIVATE_KEY")
 
 w3 = Web3(Web3.HTTPProvider(RPC_URL))
