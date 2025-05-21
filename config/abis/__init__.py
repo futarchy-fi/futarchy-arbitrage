@@ -16,6 +16,7 @@ from .sushiswap import (
 )
 from .balancer import (
     BALANCER_VAULT_ABI,
+    BALANCER_VAULT_V3_ABI,
     BALANCER_POOL_ABI,
     BALANCER_BATCH_ROUTER_ABI
 )
