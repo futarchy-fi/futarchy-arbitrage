@@ -5,20 +5,20 @@ This module is currently in EXPERIMENTAL status.
 Please use with caution as functionality may change.
 """
 
-from config.network import (
+from src.config.network import (
     DEFAULT_RPC_URLS,
     COWSWAP_API_URL,
     CHAIN_ID
 )
 
-from config.contracts import (
+from src.config.contracts import (
     CONTRACT_ADDRESSES,
     CONTRACT_WARNINGS,
     is_contract_safe,
     get_contract_warning
 )
 
-from config.pools import (
+from src.config.pools import (
     POOL_CONFIG_YES,
     POOL_CONFIG_NO,
     BALANCER_CONFIG,
@@ -27,7 +27,7 @@ from config.pools import (
     UNISWAP_V3_CONFIG
 )
 
-from config.tokens import (
+from src.config.tokens import (
     TOKEN_CONFIG,
     DEFAULT_SWAP_CONFIG,
     DEFAULT_PERMIT_CONFIG,
@@ -38,7 +38,7 @@ from config.tokens import (
 )
 
 # --- Add ABI imports ---
-from config.abis import (
+from src.config.abis import (
     ERC20_ABI
 )
 # --- End ABI imports ---

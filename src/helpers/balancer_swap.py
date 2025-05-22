@@ -49,7 +49,7 @@ from typing import Any, Dict, List, Optional
 from eth_typing import ChecksumAddress
 from web3 import Web3
 
-from .tenderly_api import TenderlyClient
+from src.helpers.tenderly_api import TenderlyClient
 # Keccak topic for ERC20 Transfer(address,address,uint256)
 ERC20_TRANSFER_TOPIC = Web3.keccak(text="Transfer(address,address,uint256)").hex()
 
