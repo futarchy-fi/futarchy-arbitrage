@@ -1,7 +1,7 @@
 import os, time, json
 from decimal import Decimal
 from eth_account import Account
-from helpers.swapr_swap import (
+from src.helpers.swapr_swap import (
     w3,
     client,
     build_exact_in_tx,
@@ -9,15 +9,15 @@ from helpers.swapr_swap import (
     parse_simulated_swap_results as parse_simulated_swapr_results,
     parse_broadcasted_swap_results as parse_broadcasted_swapr_results,
 )
-from helpers.split_position import build_split_tx
-from helpers.merge_position import build_merge_tx
-from helpers.balancer_swap import (
+from src.helpers.split_position import build_split_tx
+from src.helpers.merge_position import build_merge_tx
+from src.helpers.balancer_swap import (
     build_sell_gno_to_sdai_swap_tx,
     build_buy_gno_to_sdai_swap_tx,
     parse_simulated_swap_results as parse_simulated_balancer_results,
     parse_broadcasted_swap_results as parse_broadcasted_balancer_results,
 )
-from helpers.blockchain_sender import send_tenderly_tx_onchain
+from src.helpers.blockchain_sender import send_tenderly_tx_onchain
 
 acct = Account.from_key(os.environ["PRIVATE_KEY"])
 

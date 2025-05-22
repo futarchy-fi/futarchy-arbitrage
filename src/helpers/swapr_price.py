@@ -17,18 +17,24 @@ from typing import Tuple
 # If this script is run directly, ensure the project root is in sys.path
 # so that 'config' module can be found.
 if __name__ == "__main__":
-    # Get the absolute path of the directory containing this script (e.g., /path/to/project/helpers)
-    _current_dir = os.path.dirname(os.path.abspath(__file__))
-    # Get the project root directory (e.g., /path/to/project)
-    _project_root = os.path.dirname(_current_dir)
-    # Add project_root to the beginning of sys.path if it's not already there
-    if _project_root not in sys.path:
-        sys.path.insert(0, _project_root)
+    # This block adjusts sys.path when the script is run directly,
+    # to allow 'from src.xxx' imports to work.
+    # It adds the main project root directory (parent of 'src') to sys.path.
+    import os  # os is used by os.path.abspath further down if not for Path
+    import sys # sys is used for sys.path
+    from pathlib import Path # Using pathlib for robust path manipulation
+    
+    # Path(__file__).resolve() is .../PROJECT_ROOT/src/helpers/swapr_price.py
+    # .parents[2] navigates up two levels to get .../PROJECT_ROOT/
+    _project_main_root = str(Path(__file__).resolve().parents[2])
+    
+    if _project_main_root not in sys.path:
+        sys.path.insert(0, _project_main_root)
 
 # Now that sys.path is configured, these imports should work
 from web3 import Web3
-from config.abis.swapr import ALGEBRA_POOL_ABI
-from config.abis import ERC20_ABI
+from src.config.abis.swapr import ALGEBRA_POOL_ABI
+from src.config.abis import ERC20_ABI
 
 __all__ = ["get_pool_price"]
 
@@ -88,7 +94,7 @@ if __name__ == "__main__":  # pragma: no cover
 
     parser = argparse.ArgumentParser(description="Get Swapr/Algebra pool price.")
     parser.add_argument("--pool_address", help="The address of the Algebra pool.")
-    parser.add_argument("--base-token-index", type=int, default=0, help="Index of the base token (0 or 1). Default: 0")
+    parser.add_argument("--base_token_index", type=int, default=0, help="Index of the base token (0 or 1). Default: 0")
 
     args = parser.parse_args()
 

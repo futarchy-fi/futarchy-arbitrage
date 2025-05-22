@@ -100,7 +100,7 @@ ERC20_ABI = [
 
 def _load_router_abi() -> List[dict]:
     """Read the Balancer router ABI shipped with the project."""
-    root = Path(__file__).resolve().parent.parent
+    root = Path(__file__).resolve().parents[1]  # adapt if needed
     abi_path = root / "config" / "batch_router_abi.json"
     with abi_path.open() as fh:
         return json.load(fh)
