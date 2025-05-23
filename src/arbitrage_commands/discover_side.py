@@ -39,9 +39,9 @@ def make_web3() -> Web3:
     return Web3(Web3.HTTPProvider(rpc_url))
 
 
-def fetch_swapr(pool: str, w3: Web3) -> Tuple[str, str, str]:
+def fetch_swapr(pool: str, w3: Web3, base_token_index: int = 0) -> Tuple[str, str, str]:
     """Return 'base', 'quote', price string for an Algebra pool."""
-    price, base, quote = swapr_price(w3, pool)
+    price, base, quote = swapr_price(w3, pool, base_token_index=base_token_index)
     return base, quote, str(price)
 
 
@@ -62,8 +62,8 @@ def main() -> None:
 
     w3 = make_web3()
 
-    yes_base, yes_quote, yes_price = fetch_swapr(addr_yes, w3)
-    no_base,  no_quote,  no_price  = fetch_swapr(addr_no,  w3)
+    yes_base, yes_quote, yes_price = fetch_swapr(addr_yes, w3, base_token_index=0)
+    no_base,  no_quote,  no_price  = fetch_swapr(addr_no,  w3, base_token_index=1)
     bal_base, bal_quote, bal_price = fetch_balancer(addr_bal, w3)
 
     print(f"YES  pool: 1 {yes_base} = {yes_price} {yes_quote}")
