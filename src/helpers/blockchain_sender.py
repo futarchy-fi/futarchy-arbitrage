@@ -83,18 +83,18 @@ def main() -> None:  # noqa: D401
             swapr_exact_in <token_in> <token_out> <amount_in_wei> <amount_out_min_wei>
     """
     # Lazily import to avoid circular deps when used as lib
-    from .helpers.swapr_swap import (
+    from .swapr_swap import (
         build_exact_in_tx,
         build_exact_out_tx,
         parse_broadcasted_swap_results as parse_swapr_broadcasted_swap_results,
     )
-    from .helpers.balancer_swap import (
+    from .balancer_swap import (
         build_sell_gno_to_sdai_swap_tx,
         parse_broadcasted_swap_results as parse_balancer_broadcasted_swap_results,
         SDAI,
         GNO,
     )
-    from .helpers.tenderly_api import TenderlyClient
+    from .tenderly_api import TenderlyClient
 
     argv = sys.argv
     if len(argv) < 2 or argv[1] not in ("swapr_exact_in", "swapr_exact_out", "balancer_exact_in"):
