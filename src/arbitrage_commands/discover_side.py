@@ -19,6 +19,7 @@ The script exits with a non-zero status if any environment variable is missing.
 """
 
 import os
+import runpy
 import sys
 from typing import Tuple
 
@@ -26,6 +27,8 @@ from web3 import Web3
 
 from helpers.swapr_price    import get_pool_price as swapr_price
 from helpers.balancer_price import get_pool_price as bal_price
+from arbitrage_commands.buy_cond import buy_gno_yes_and_no_amounts_with_sdai
+from arbitrage_commands.sell_cond import sell_gno_yes_and_no_amounts_to_sdai
 from config.network import DEFAULT_RPC_URLS
 
 # --------------------------------------------------------------------------- #
@@ -52,7 +55,14 @@ def fetch_balancer(pool: str, w3: Web3) -> Tuple[str, str, str]:
 
 
 def main() -> None:
+    import sys
+
+    SEND_FLAG = {"--send", "-s"}
+    broadcast = any(flag in sys.argv for flag in SEND_FLAG)
+    sys.argv = [arg for arg in sys.argv if arg not in SEND_FLAG]
+
     addr_yes = os.getenv("SWAPR_POOL_YES_ADDRESS")
+    addr_pred_yes = os.getenv("SWAPR_POOL_PRED_YES_ADDRESS")
     addr_no  = os.getenv("SWAPR_POOL_NO_ADDRESS")
     addr_bal = os.getenv("BALANCER_POOL_ADDRESS")
 
@@ -63,12 +73,40 @@ def main() -> None:
     w3 = make_web3()
 
     yes_base, yes_quote, yes_price = fetch_swapr(addr_yes, w3, base_token_index=0)
+    _, _, pred_yes_price = fetch_swapr(addr_pred_yes, w3, base_token_index=0)
     no_base,  no_quote,  no_price  = fetch_swapr(addr_no,  w3, base_token_index=1)
     bal_base, bal_quote, bal_price = fetch_balancer(addr_bal, w3)
 
     print(f"YES  pool: 1 {yes_base} = {yes_price} {yes_quote}")
+    print(f"PRED pool: 1 {yes_base} = {pred_yes_price} {yes_quote}")
     print(f"NO   pool: 1 {no_base}  = {no_price}  {no_quote}")
     print(f"BAL  pool: 1 {bal_base} = {bal_price} {bal_quote}")
+
+    ideal_bal_price = float(pred_yes_price) * float(yes_price) + (1.0 - float(pred_yes_price)) * float(no_price)
+    print(f"Ideal BAL price: 1 {bal_base} = {ideal_bal_price} {bal_quote}")
+
+    amount = sys.argv[1]
+    amount = float(amount)
+    if amount > 0:
+        if float(bal_price) > ideal_bal_price:
+            print("Buying conditional GNO")
+            result = buy_gno_yes_and_no_amounts_with_sdai(amount, broadcast=broadcast)
+            print(f"Result: {result}")
+        else:
+            print("Selling conditional GNO")
+            result = sell_gno_yes_and_no_amounts_to_sdai(amount, broadcast=broadcast)
+            print(f"Result: {result}")
+
+    yes_base, yes_quote, yes_price = fetch_swapr(addr_yes, w3, base_token_index=0)
+    _, _, pred_yes_price = fetch_swapr(addr_pred_yes, w3, base_token_index=0)
+    no_base,  no_quote,  no_price  = fetch_swapr(addr_no,  w3, base_token_index=1)
+    bal_base, bal_quote, bal_price = fetch_balancer(addr_bal, w3)
+
+    print(f"YES  pool: 1 {yes_base} = {yes_price} {yes_quote}")
+    print(f"PRED pool: 1 {yes_base} = {pred_yes_price} {yes_quote}")
+    print(f"NO   pool: 1 {no_base}  = {no_price}  {no_quote}")
+    print(f"BAL  pool: 1 {bal_base} = {bal_price} {bal_quote}")
+
 
 
 # --------------------------------------------------------------------------- #
