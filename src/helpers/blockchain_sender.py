@@ -64,7 +64,7 @@ def send_tenderly_tx_onchain(tenderly_tx: dict, value: int = 0, nonce: Optional[
         tx["gas"] = 1_500_000
 
     signed_tx = acct.sign_transaction(tx)
-    hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction).hex()
+    hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction).hex()
     w3.eth.wait_for_transaction_receipt(hash)
     return hash
 

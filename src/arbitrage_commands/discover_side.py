@@ -98,10 +98,36 @@ def run_once(amount: float, broadcast: bool) -> None:
     if amount > 0:
         if bal_price_val > ideal_bal_price:
             print("→ Buying conditional GNO")
-            result = buy_gno_yes_and_no_amounts_with_sdai(amount, broadcast=broadcast)
+            if broadcast:
+                result = buy_gno_yes_and_no_amounts_with_sdai(amount, broadcast=False)
+                print(f"Simulated Result: {result}")
+                print(f"sDAI net: {result['sdai_net']}")
+                if result['sdai_net'] > 0:
+                    print("→ Broadcasting transaction")
+                    result = buy_gno_yes_and_no_amounts_with_sdai(amount, broadcast=True)
+                    print(f"Result: {result}")
+                else:
+                    print("→ No profit from buying conditional GNO")
+            else:
+                print("→ Not broadcasting transaction")
+                result = buy_gno_yes_and_no_amounts_with_sdai(amount, broadcast=False)
+                print(f"Simulated Result: {result}")
         else:
             print("→ Selling conditional GNO")
-            result = sell_gno_yes_and_no_amounts_to_sdai(amount, broadcast=broadcast)
+            if broadcast:
+                result = sell_gno_yes_and_no_amounts_to_sdai(amount, broadcast=False)
+                print(f"Simulated Result: {result}")
+                print(f"sDAI net: {result['sdai_net']}")
+                if result['sdai_net'] > 0:
+                    print("→ Broadcasting transaction")
+                    result = sell_gno_yes_and_no_amounts_to_sdai(amount, broadcast=True)
+                    print(f"Result: {result}")
+                else:
+                    print("→ No profit from buying conditional GNO")
+            else:
+                print("→ Not broadcasting transaction")
+                result = sell_gno_yes_and_no_amounts_to_sdai(amount, broadcast=False)
+                print(f"Simulated Result: {result}")
         print(f"Result: {result}")
 
     # Re-fetch to display post-trade prices

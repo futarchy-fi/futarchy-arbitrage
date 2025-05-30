@@ -258,7 +258,7 @@ def main():
     print(f"Estimated gas: {tx['gas']}")
 
     signed_tx = acct.sign_transaction(tx)
-    tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
+    tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
     print(f"Broadcasted tx → {tx_hash.hex()}")
     receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
     print(f"Status: {receipt.status} (1 = success) | Gas used: {receipt.gasUsed}")
