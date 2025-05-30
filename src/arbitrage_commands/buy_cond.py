@@ -426,12 +426,26 @@ def buy_gno_yes_and_no_amounts_with_sdai(amount, *, broadcast=False):
     )
 
     # Extract amounts from the second simulation result
-    amount_in_yes_wei = result['amount_in_yes_wei']
-    amount_in_no_wei = result['amount_in_no_wei']
+    amount_out_yes_wei = result['amount_out_yes_wei']
+    amount_out_no_wei = result['amount_out_no_wei']
+    if amount_out_yes_wei > amount_out_no_wei:
+        amount_out_cond_limited_wei = amount_out_no_wei
+    else:
+        amount_out_cond_limited_wei = amount_out_yes_wei
+    amount_out_cond_limited = w3.from_wei(amount_out_cond_limited_wei, "ether")
+    print("amount_out_cond_limited:", amount_out_cond_limited)
+
 
     print("STEP 3 ----------------")
-    liquidate_conditional_sdai_amount_wei = amount_in_yes_wei - amount_in_no_wei
-    print("liquidate_conditional_sdai_amount_wei: ", liquidate_conditional_sdai_amount_wei)
+    liquidate_conditional_sdai_amount_wei = amount_out_yes_wei - amount_out_no_wei
+    
+    # # Extract amounts from the second simulation result
+    # amount_in_yes_wei = result['amount_in_yes_wei']
+    # amount_in_no_wei = result['amount_in_no_wei']
+
+    # print("STEP 3 ----------------")
+    # liquidate_conditional_sdai_amount_wei = amount_in_yes_wei - amount_in_no_wei
+    # print("liquidate_conditional_sdai_amount_wei: ", liquidate_conditional_sdai_amount_wei)
     
     if liquidate_conditional_sdai_amount_wei > 0:
         liquidate_conditional_sdai_amount = w3.from_wei(liquidate_conditional_sdai_amount_wei, "ether")
@@ -453,7 +467,7 @@ def buy_gno_yes_and_no_amounts_with_sdai(amount, *, broadcast=False):
     # Extract amounts from the third simulation result (simulation mode)
     sdai_in = result['sdai_in']
     sdai_out = result['sdai_out']
-
+    result['sdai_net'] = sdai_out - sdai_in
     print("FINAL RESULT")
     print("sDAI in:", sdai_in)
     print("sDAI out:", sdai_out)

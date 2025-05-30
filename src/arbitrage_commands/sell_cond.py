@@ -482,6 +482,7 @@ def sell_gno_yes_and_no_amounts_to_sdai(amount, *, broadcast=False):
     # Extract amounts from the third simulation result (simulation mode)
     sdai_in = result['sdai_in']
     sdai_out = result['sdai_out'] + amount_out_cond_limited
+    result['sdai_net'] = sdai_out - sdai_in
 
     print("FINAL RESULT")
     print("sDAI in:", sdai_in)
