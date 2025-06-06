@@ -156,92 +156,107 @@ def execute_conditionals_low(w3, acct, router_addr, proposal_addr, sdai_addr, gn
     return [split_tx, yes_swap_tx, no_swap_tx, merge_tx, sell_gno_tx]
 
 
-def main():
-    """Main entry point"""
-    # Parse command line arguments
-    if len(sys.argv) < 3:
-        print("Usage: python -m src.arbitrage_commands.simple_bot <amount> <interval> [--send]")
-        print("  <amount>   - Amount in sDAI to trade")
-        print("  <interval> - Interval in seconds between runs")
-        print("  --send     - Execute transactions (default: simulate only)")
-        sys.exit(1)
-        
-    try:
-        amount = float(sys.argv[1])
-        interval = int(sys.argv[2])
-    except ValueError:
-        print("Error: <amount> must be a number and <interval> must be an integer.")
-        sys.exit(1)
-        
-    # Check for --send flag (execute transactions) vs default simulate mode
-    execute_trades = "--send" in sys.argv or "-s" in sys.argv
-    
+def run_once(amount: float, execute_trades: bool) -> None:
+    """Execute a single price check + optional trade."""
     # Initialize
     w3, acct, router_addr, proposal_addr, sdai_addr, gno_addr = initialize()
     
+    # Fetch current prices
+    spot_price, yes_price, no_price = fetch_prices(w3)
+    
+    print(f"Spot price (Balancer): {spot_price:.6f} GNO/sDAI")
+    print(f"YES price (Swapr): {yes_price:.6f} GNO/sDAI")
+    print(f"NO price (Swapr): {no_price:.6f} GNO/sDAI")
+    
+    # Only proceed if amount > 0
+    if amount <= 0:
+        print("Amount is 0, skipping trade execution.")
+        return
+    
+    # Determine arbitrage strategy
+    if yes_price > spot_price and no_price > spot_price:
+        print("Both conditionals > spot. Executing high strategy...")
+        print("Strategy: Buy GNO → Split → Sell conditionals → Merge")
+        txs = execute_conditionals_high(w3, acct, router_addr, proposal_addr, sdai_addr, gno_addr, amount)
+        
+    elif yes_price < spot_price and no_price < spot_price:
+        print("Both conditionals < spot. Executing low strategy...")
+        print("Strategy: Split sDAI → Buy conditionals → Merge → Sell GNO")
+        txs = execute_conditionals_low(w3, acct, router_addr, proposal_addr, sdai_addr, gno_addr, amount)
+        
+    else:
+        print("Conditionals diverge around spot price. No arbitrage opportunity.")
+        print(f"YES vs Spot: {yes_price - spot_price:+.6f}")
+        print(f"NO vs Spot: {no_price - spot_price:+.6f}")
+        return
+    
+    print(f"Number of transactions: {len(txs)}")
+    
+    if not execute_trades:
+        print("Simulating transactions...")
+        try:
+            result = client.simulate(txs)
+            print("Simulation successful!")
+            print("Result:", result)
+        except Exception as e:
+            print(f"Simulation failed: {e}")
+    else:
+        print("Executing transactions...")
+        try:
+            nonce = w3.eth.get_transaction_count(acct.address)
+            for i, tx in enumerate(txs):
+                print(f"Sending transaction {i+1}/{len(txs)}...")
+                tx_hash = send_tenderly_tx_onchain(tx, nonce=nonce + i)
+                print(f"Transaction {i+1}: {tx_hash}")
+            print("All transactions sent successfully!")
+        except Exception as e:
+            print(f"Execution failed: {e}")
+    
+    # Re-fetch prices after transaction
+    spot_price, yes_price, no_price = fetch_prices(w3)
+    print("--- after tx ---")
+    print(f"Spot price (Balancer): {spot_price:.6f} GNO/sDAI")
+    print(f"YES price (Swapr): {yes_price:.6f} GNO/sDAI") 
+    print(f"NO price (Swapr): {no_price:.6f} GNO/sDAI")
+    print()
+
+
+def main():
+    """Main entry point"""
+    # ---- parse CLI once ---------------------------------------------------- #
+    SEND_FLAG = {"--send", "-s"}
+    execute_trades = any(flag in sys.argv for flag in SEND_FLAG)
+    args = [arg for arg in sys.argv[1:] if arg not in SEND_FLAG]
+
+    if len(args) < 2:
+        print("Usage: python -m src.arbitrage_commands.simple_bot <amount> <interval> [--send]", file=sys.stderr)
+        print("  <amount>   - Amount in sDAI to trade", file=sys.stderr)
+        print("  <interval> - Interval in seconds between runs", file=sys.stderr)
+        print("  --send     - Execute transactions (default: simulate only)", file=sys.stderr)
+        sys.exit(2)
+
+    try:
+        amount = float(args[0])
+        interval = int(args[1])
+    except ValueError:
+        print("Error: <amount> must be a number and <interval> must be an integer.", file=sys.stderr)
+        sys.exit(2)
+
+    # ---- main loop --------------------------------------------------------- #
     print(f"Starting simple arbitrage bot – interval: {interval} seconds")
     print(f"Amount per trade: {amount} sDAI")
     print(f"Mode: {'EXECUTE' if execute_trades else 'SIMULATE'}")
     print()
     
-    # Main loop
     while True:
         try:
-            # Fetch current prices
-            spot_price, yes_price, no_price = fetch_prices(w3)
-            
-            print(f"Spot price (Balancer): {spot_price:.6f} GNO/sDAI")
-            print(f"YES price (Swapr): {yes_price:.6f} GNO/sDAI")
-            print(f"NO price (Swapr): {no_price:.6f} GNO/sDAI")
-            
-            # Determine arbitrage strategy
-            if yes_price > spot_price and no_price > spot_price:
-                print("Both conditionals > spot. Executing high strategy...")
-                print("Strategy: Buy GNO → Split → Sell conditionals → Merge")
-                txs = execute_conditionals_high(w3, acct, router_addr, proposal_addr, sdai_addr, gno_addr, amount)
-                
-            elif yes_price < spot_price and no_price < spot_price:
-                print("Both conditionals < spot. Executing low strategy...")
-                print("Strategy: Split sDAI → Buy conditionals → Merge → Sell GNO")
-                txs = execute_conditionals_low(w3, acct, router_addr, proposal_addr, sdai_addr, gno_addr, amount)
-                
-            else:
-                print("Conditionals diverge around spot price. No arbitrage opportunity.")
-                print(f"YES vs Spot: {yes_price - spot_price:+.6f}")
-                print(f"NO vs Spot: {no_price - spot_price:+.6f}")
-                print()
-                time.sleep(interval)
-                continue
-            
-            print(f"Number of transactions: {len(txs)}")
-            
-            if not execute_trades:
-                print("Simulating transactions...")
-                try:
-                    result = client.simulate(txs)
-                    print("Simulation successful!")
-                    print("Result:", result)
-                except Exception as e:
-                    print(f"Simulation failed: {e}")
-            else:
-                print("Executing transactions...")
-                try:
-                    nonce = w3.eth.get_transaction_count(acct.address)
-                    for i, tx in enumerate(txs):
-                        print(f"Sending transaction {i+1}/{len(txs)}...")
-                        tx_hash = send_tenderly_tx_onchain(tx, nonce=nonce + i)
-                        print(f"Transaction {i+1}: {tx_hash}")
-                    print("All transactions sent successfully!")
-                except Exception as e:
-                    print(f"Execution failed: {e}")
-                    
+            run_once(amount, execute_trades)
         except KeyboardInterrupt:
             print("\nInterrupted – exiting.")
             break
-        except Exception as exc:
-            print(f"⚠️  {type(exc).__name__}: {exc}")
-        
-        print()
+        except Exception as exc:  # noqa: BLE001
+            print(f"⚠️  {type(exc).__name__}: {exc}", file=sys.stderr)
+
         time.sleep(interval)
 
 
