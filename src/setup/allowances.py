@@ -1,14 +1,13 @@
 import os, time
+from typing import List, Tuple
 from eth_account import Account
 from web3 import Web3
-from web3.middleware import construct_sign_and_send_raw_middleware
 
 # --------------------------------------------------------------------------- #
 # 0️⃣  Setup web3 & signing middleware                                        #
 # --------------------------------------------------------------------------- #
 w3 = Web3(Web3.HTTPProvider(os.environ["RPC_URL"]))   # chain-id 100
 acct = Account.from_key(os.environ["PRIVATE_KEY"])
-w3.middleware_onion.add(construct_sign_and_send_raw_middleware(acct))
 w3.eth.default_account = acct.address
 
 # --------------------------------------------------------------------------- #
@@ -33,7 +32,7 @@ ERC20_ABI = [
 # --------------------------------------------------------------------------- #
 MAX_UINT256 = (1 << 256) - 1         # 2**256 − 1
 
-ALLOWANCES: list[tuple[str, str, int]] = [
+ALLOWANCES: List[Tuple[str, str, int]] = [
     # (token                      , spender                       , amount_wei)
     # ----------------------------------------------------------------------- #
     # SwapR router – swaps that use a token *as input*                        #
@@ -101,8 +100,9 @@ def send_allowances() -> None:
             }
         )
 
-        # sign-and-send via middleware; returns hash bytes
-        tx_hash = w3.eth.send_transaction(tx)
+        # sign transaction manually for web3.py 6.x compatibility
+        signed_tx = acct.sign_transaction(tx)
+        tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
         print(f"→ approve {spender[:6]}… for {amount} on {token[:6]}… "
               f"[{tx_hash.hex()}]")
 

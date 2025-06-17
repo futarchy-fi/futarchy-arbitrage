@@ -102,7 +102,7 @@ def run_once(amount: float, broadcast: bool) -> None:
                 result = buy_gno_yes_and_no_amounts_with_sdai(amount, broadcast=False)
                 print(f"Simulated Result: {result}")
                 print(f"sDAI net: {result['sdai_net']}")
-                if result['sdai_net'] > 0:
+                if result['sdai_net'] > -0.005:
                     print("→ Broadcasting transaction")
                     result = buy_gno_yes_and_no_amounts_with_sdai(amount, broadcast=True)
                     print(f"Result: {result}")
