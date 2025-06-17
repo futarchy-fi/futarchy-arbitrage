@@ -5,6 +5,7 @@ __pycache__/
 .pytest_cache/
 venv/
 env/
+futarchy_env/
 *.egg-info/
 *.egg-info/*
 .DS_Store
