@@ -90,11 +90,11 @@ def run_loop(amount: Decimal, tolerance_pct: Decimal, interval: int) -> None:
                   f"BAL={bal_p:.6f}  IDEAL={ideal:.6f}  Δ%={diff_pct:+.2f}")
 
             # Decision logic ------------------------------------------------
-            if diff_pct > tolerance_pct:
+            if yes_p < bal_p and no_p < bal_p:
                 print(f"📈  Balancer overpriced by {diff_pct:.2f}% → BUY conditional GNO")
                 tx_hashes = buy_gno_yes_and_no_amounts_with_sdai(float(amount))
                 print(f"✅  Sent {len(tx_hashes)} txs – first hash: {tx_hashes[0]}")
-            elif diff_pct < -tolerance_pct:
+            elif yes_p > bal_p and no_p > bal_p:
                 print(f"📉  Balancer under‑priced by {diff_pct:.2f}% → SELL conditional GNO")
                 tx_hashes = sell_gno_yes_and_no_amounts_to_sdai(float(amount))
                 print(f"✅  Sent {len(tx_hashes)} txs – first hash: {tx_hashes[0]}")
