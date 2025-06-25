@@ -56,6 +56,9 @@ ALLOWANCES: List[Tuple[str, str, int]] = [
     (os.environ["SDAI_TOKEN_ADDRESS"],  # sDAI (collateral)
      os.environ["FUTARCHY_ROUTER_ADDRESS"],  # Futarchy Router
      MAX_UINT256),
+    (os.environ["GNO_TOKEN_ADDRESS"],  # GNO (collateral)
+     os.environ["FUTARCHY_ROUTER_ADDRESS"],  # Futarchy Router
+     MAX_UINT256),
     (os.environ["SWAPR_GNO_YES_ADDRESS"],  # GNO-YES
      os.environ["FUTARCHY_ROUTER_ADDRESS"],
      MAX_UINT256),
@@ -71,6 +74,11 @@ ALLOWANCES: List[Tuple[str, str, int]] = [
 
     # Balancer router – selling plain GNO for sDAI                             #
     (os.environ["GNO_TOKEN_ADDRESS"],  # GNO
+     os.environ["BALANCER_ROUTER_ADDRESS"],  # Balancer Router
+     MAX_UINT256),
+
+    # Balancer router – selling plain GNO for sDAI                             #
+    (os.environ["SDAI_TOKEN_ADDRESS"],  # GNO
      os.environ["BALANCER_ROUTER_ADDRESS"],  # Balancer Router
      MAX_UINT256),
 ]
