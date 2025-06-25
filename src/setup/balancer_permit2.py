@@ -50,7 +50,7 @@ from pathlib import Path
 from typing import List
 
 from eth_account import Account
-from eth_account.messages import encode_structured_data
+from eth_account.messages import encode_typed_data
 from web3 import Web3
 from web3.middleware import geth_poa_middleware
 
@@ -203,7 +203,7 @@ def main():
     }
 
     structured = build_structured_data(args.chain_id, PERMIT2_ADDRESS, permit_batch)
-    encoded = encode_structured_data(structured)
+    encoded = encode_typed_data(full_message=structured)
     signed = acct.sign_message(encoded)
     signature_hex = signed.signature.hex()
 
