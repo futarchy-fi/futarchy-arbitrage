@@ -220,7 +220,20 @@ def build_buy_gno_to_sdai_swap_tx(
 ) -> Dict[str, Any]:
     """Encode swapExactIn calldata for **buying GNO with sDAI**."""
 
+    # Log all function arguments
+    print(f"=== build_buy_gno_to_sdai_swap_tx ARGUMENTS ===")
+    print(f"amount_in_wei: {amount_in_wei}")
+    print(f"amount_in_ether: {w3.from_wei(amount_in_wei, 'ether')}")
+    print(f"min_amount_out_wei: {min_amount_out_wei}")
+    print(f"min_amount_out_ether: {w3.from_wei(min_amount_out_wei, 'ether')}")
+    print(f"sender: {sender}")
+    print(f"router_addr: {router_addr}")
+    print(f"deadline: {deadline}")
+    print(f"weth_is_eth: {weth_is_eth}")
+    print(f"user_data: {user_data}")
+
     router = _get_router(w3, router_addr)
+    print(f"router_address: {router.address}")
 
     # SwapPathStep[] – two hops (reverse order)
     steps = [
@@ -238,6 +251,14 @@ def build_buy_gno_to_sdai_swap_tx(
         ),
     ]
 
+    # Log swap path details
+    print(f"=== SWAP PATH DETAILS ===")
+    print(f"SDAI token address: {SDAI}")
+    print(f"GNO token address: {GNO}")
+    print(f"FINAL_POOL: {FINAL_POOL}")
+    print(f"BUFFER_POOL: {BUFFER_POOL}")
+    print(f"steps: {steps}")
+
     # SwapPathExactAmountIn
     path = (
         SDAI,                     # tokenIn (sDAI)
@@ -246,12 +267,32 @@ def build_buy_gno_to_sdai_swap_tx(
         int(min_amount_out_wei),  # minAmountOut  (GNO)
     )
 
+    print(f"=== SWAP PATH STRUCTURE ===")
+    print(f"tokenIn: {path[0]}")
+    print(f"steps: {path[1]}")
+    print(f"exactAmountIn: {path[2]}")
+    print(f"minAmountOut: {path[3]}")
+    print("============================")
+
     calldata = router.encodeABI(
         fn_name="swapExactIn",
         args=[[path], int(deadline), bool(weth_is_eth), user_data],
     )
 
-    return client.build_tx(router.address, calldata, sender)
+    print(f"=== ENCODED TRANSACTION ===")
+    print(f"function_name: swapExactIn")
+    print(f"calldata_length: {len(calldata)}")
+    print(f"calldata: {calldata}")
+
+    tx_dict = client.build_tx(router.address, calldata, sender)
+    print(f"=== BUILT TRANSACTION ===")
+    print(f"to: {tx_dict.get('to')}")
+    print(f"from: {tx_dict.get('from')}")
+    print(f"data: {tx_dict.get('data')}")
+    print(f"value: {tx_dict.get('value')}")
+    print("========================")
+
+    return tx_dict
 
 
 def sell_gno_to_sdai(
