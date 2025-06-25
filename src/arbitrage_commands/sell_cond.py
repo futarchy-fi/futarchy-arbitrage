@@ -73,9 +73,9 @@ def build_conditional_sdai_liquidation_steps(
             ]
     return steps
 
-def build_step_2_swap_steps(split_amount_in_wei, sdai_amount_in_wei, price=1000):
+def build_step_2_swap_steps(split_amount_in_wei, sdai_amount_in_wei, price=100):
     if sdai_amount_in_wei is None:
-        amount_in_max = int(split_amount_in_wei * 100.2)
+        amount_in_max = int(split_amount_in_wei * price * 1.002)
         amount_out_min = 0
 
         yes_tx = build_exact_in_tx(
@@ -89,7 +89,7 @@ def build_step_2_swap_steps(split_amount_in_wei, sdai_amount_in_wei, price=1000)
             (no_tx, handle_swap("no", "in", split_amount_in_wei)),
         ]
     else:
-        amount_in_max = int(split_amount_in_wei * 100.01)
+        amount_in_max = int(split_amount_in_wei * price)
         amount_out_expected = sdai_amount_in_wei
         print("split_amount_in_wei: ", split_amount_in_wei)
         print("amount_in_max: ", amount_in_max)
@@ -245,11 +245,11 @@ def handle_swap(label_kind: str, fixed_kind: str, amount_wei: int):
         returned_amount_wei = extract_return(sim, amount_wei, fixed_kind_lc)
         if fixed_kind_lc == "in" and returned_amount_wei is not None:
             if label_kind_lc == "yes":
-                state["amount_out_yes_wei"] = returned_amount_wei
                 state["amount_in_yes_wei"] = amount_wei
+                state["amount_out_yes_wei"] = returned_amount_wei
             else:
-                state["amount_out_no_wei"] = returned_amount_wei
                 state["amount_in_no_wei"] = amount_wei
+                state["amount_out_no_wei"] = returned_amount_wei
         elif fixed_kind_lc == "out" and returned_amount_wei is not None:
             if label_kind_lc == "yes":
                 state["amount_in_yes_wei"] = returned_amount_wei
@@ -295,6 +295,16 @@ def sell_gno_yes_and_no_amounts_to_sdai_single(
     # ------------------------------------------------------------------ #
     sdai_amount_in_wei = w3.to_wei(Decimal(amount), "ether")
 
+    # Log all important arguments for the Balancer swap
+    print(f"=== BALANCER SWAP ARGUMENTS ===")
+    print(f"sdai_amount_in_wei: {sdai_amount_in_wei}")
+    print(f"sdai_amount (ether): {amount}")
+    print(f"min_gno_out_wei: 1")
+    print(f"sender_address: {acct.address}")
+    print(f"w3 instance: {w3}")
+    print(f"client instance: {client}")
+    print("===============================")
+
     buy_gno_tx = build_buy_gno_to_sdai_swap_tx(
         w3,
         client,
@@ -302,7 +312,7 @@ def sell_gno_yes_and_no_amounts_to_sdai_single(
         1,            # min GNO out (wei)
         acct.address,
     )
-    steps.append((buy_gno_tx, handle_balancer)) 
+    steps.append((buy_gno_tx, handle_balancer))
 
     if max_step >= 2:
         print("max_step >= 2")

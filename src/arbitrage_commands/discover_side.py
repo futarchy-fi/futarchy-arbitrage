@@ -102,7 +102,7 @@ def run_once(amount: float, broadcast: bool) -> None:
                 result = buy_gno_yes_and_no_amounts_with_sdai(amount, broadcast=False)
                 print(f"Simulated Result: {result}")
                 print(f"sDAI net: {result['sdai_net']}")
-                if result['sdai_net'] > -0.005:
+                if result['sdai_net'] > -0.01:
                     print("→ Broadcasting transaction")
                     result = buy_gno_yes_and_no_amounts_with_sdai(amount, broadcast=True)
                     print(f"Result: {result}")
@@ -118,7 +118,7 @@ def run_once(amount: float, broadcast: bool) -> None:
                 result = sell_gno_yes_and_no_amounts_to_sdai(amount, broadcast=False)
                 print(f"Simulated Result: {result}")
                 print(f"sDAI net: {result['sdai_net']}")
-                if result['sdai_net'] > 0:
+                if result['sdai_net'] > -0.01:
                     print("→ Broadcasting transaction")
                     result = sell_gno_yes_and_no_amounts_to_sdai(amount, broadcast=True)
                     print(f"Result: {result}")
@@ -131,7 +131,7 @@ def run_once(amount: float, broadcast: bool) -> None:
         print(f"Result: {result}")
 
     # Re-fetch to display post-trade prices
-    yes_base, yes_quote, yes_price = fetch_swapr(addr_yes, w3, base_token_index=0)
+    yes_base, yes_quote, yes_price = fetch_swapr(addr_yes, w3, base_token_index=1)
     _, _, pred_yes_price = fetch_swapr(addr_pred_yes, w3, base_token_index=0)
     no_base, no_quote, no_price = fetch_swapr(addr_no, w3, base_token_index=1)
     bal_base, bal_quote, bal_price_str = fetch_balancer(addr_bal, w3)
