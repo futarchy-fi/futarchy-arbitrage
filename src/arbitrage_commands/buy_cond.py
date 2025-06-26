@@ -99,12 +99,8 @@ def build_step_2_merge_tx(gno_amount_in_wei):
 
 
 # --------------------------------------------------------------------------- #
-# Simple helper: liquidate conditional sDAI (YES) back to plain sDAI          #
+# Handler functions for transaction simulation steps                          #
 # --------------------------------------------------------------------------- #
-
-
-
-# Adjust collateral amount to split as needed (currently hard-coded to 1 ether)
 def handle_split(state, sim):
     return state
 
@@ -132,10 +128,11 @@ def handle_liquidate(state, sim):
     return state
 
 def handle_buy_sdai_yes(state, sim):
-    data = parse_simulated_swapr_results([sim], label="SwapR buy sDAI-YES (exact-out)", fixed="out")
+    parse_simulated_swapr_results([sim], label="SwapR buy sDAI-YES (exact-out)", fixed="out")
     return state
 
 def handle_merge_conditional_sdai(state, sim):
+    # Merging conditional sDAI tokens back to regular sDAI
     return state
 
 def handle_balancer(state, sim):
@@ -245,7 +242,6 @@ def buy_gno_yes_and_no_amounts_with_sdai_single(
 
     gno_to_sdai_txs = []
     if gno_amount_in_wei:
-        print("Sell GNO to sDAI, gno_amount_in_wei:", gno_amount_in_wei)
         gno_to_sdai_txs.append(
             build_sell_gno_to_sdai_swap_tx(
                 w3,
@@ -275,7 +271,7 @@ def buy_gno_yes_and_no_amounts_with_sdai_single(
         }
 
         # Walk over tx hashes and matching handlers to enrich state
-        for (tx_hash, (_tx_dict, handler)) in zip(tx_hashes, steps):
+        for (tx_hash, (_, handler)) in zip(tx_hashes, steps):
             # SwapR swaps expose metadata via attributes
             if hasattr(handler, "label_kind"):
                 swap_res = parse_broadcasted_swapr_results(tx_hash, fixed=handler.fixed_kind)
@@ -325,7 +321,6 @@ def buy_gno_yes_and_no_amounts_with_sdai_single(
             if idx < len(steps):
                 _, handler = steps[idx]
                 state = handler(state, sim)
-                # print("State after handling:", state)
             else:
                 print("No handler defined for this tx.")
     else:
@@ -343,7 +338,7 @@ def buy_gno_yes_and_no_amounts_with_sdai(amount, *, broadcast=False):
     amount_out_yes_wei = result['amount_out_yes_wei']
     amount_out_no_wei = result['amount_out_no_wei']
 
-    print("STEP 2 ----------------")
+    # Step 2: Determine the limiting amount between YES and NO tokens
     if amount_out_yes_wei > amount_out_no_wei:
         amount_out_limited_wei = amount_out_no_wei
     else:
@@ -351,7 +346,7 @@ def buy_gno_yes_and_no_amounts_with_sdai(amount, *, broadcast=False):
 
     amount_out_limited = w3.from_wei(amount_out_limited_wei, "ether")  # gno_amount in ETH
 
-    print("Running:\nbuy_gno_yes_and_no_amounts_with_sdai_single({}, {}, None)\n".format(amount, amount_out_limited))
+    # Run second simulation with GNO amount limit
     result = buy_gno_yes_and_no_amounts_with_sdai_single(
         amount, amount_out_limited, None
     )
@@ -363,27 +358,17 @@ def buy_gno_yes_and_no_amounts_with_sdai(amount, *, broadcast=False):
         amount_out_cond_limited_wei = amount_out_no_wei
     else:
         amount_out_cond_limited_wei = amount_out_yes_wei
-    amount_out_cond_limited = w3.from_wei(amount_out_cond_limited_wei, "ether")
-    print("amount_out_cond_limited:", amount_out_cond_limited)
-
-
-    print("STEP 3 ----------------")
-    liquidate_conditional_sdai_amount_wei = amount_out_yes_wei - amount_out_no_wei
-    
-    # # Extract amounts from the second simulation result
-    # amount_in_yes_wei = result['amount_in_yes_wei']
-    # amount_in_no_wei = result['amount_in_no_wei']
-
-    # print("STEP 3 ----------------")
-    # liquidate_conditional_sdai_amount_wei = amount_in_yes_wei - amount_in_no_wei
-    # print("liquidate_conditional_sdai_amount_wei: ", liquidate_conditional_sdai_amount_wei)
-    
+    # amount_out_cond_limited = w3.from_wei(amount_out_cond_limited_wei, "ether")
+    # Step 3: Calculate conditional sDAI liquidation amount
+    amount_in_yes_wei = result['amount_in_yes_wei']
+    amount_in_no_wei = result['amount_in_no_wei']
+    liquidate_conditional_sdai_amount_wei = amount_in_yes_wei - amount_in_no_wei
     if liquidate_conditional_sdai_amount_wei > 0:
         liquidate_conditional_sdai_amount = w3.from_wei(liquidate_conditional_sdai_amount_wei, "ether")
     else:
         liquidate_conditional_sdai_amount = -w3.from_wei(-liquidate_conditional_sdai_amount_wei, "ether")
 
-    print("Running:\nbuy_gno_yes_and_no_amounts_with_sdai_single({}, {}, {})\n".format(amount, amount_out_limited, liquidate_conditional_sdai_amount))
+    # Run final simulation with liquidation amount
     result = buy_gno_yes_and_no_amounts_with_sdai_single(
         amount,
         amount_out_limited,
@@ -399,10 +384,8 @@ def buy_gno_yes_and_no_amounts_with_sdai(amount, *, broadcast=False):
     sdai_in = result['sdai_in']
     sdai_out = result['sdai_out']
     result['sdai_net'] = sdai_out - sdai_in
-    print("FINAL RESULT")
-    print("sDAI in:", sdai_in)
-    print("sDAI out:", sdai_out)
-    print("sDAI net:", sdai_out - sdai_in)
+    # Calculate net sDAI for final result
+    print(f"sDAI in: {sdai_in}, out: {sdai_out}, net: {sdai_out - sdai_in}")
     return result
 
 if __name__ == "__main__":
@@ -422,14 +405,12 @@ if __name__ == "__main__":
 
     if num_script_args == 1:
         # Corresponds to the original "main" block's behavior (1 argument)
-        # print(f"Debug: Running current main logic with amount: {amount}") # Optional debug print
         print(f"Simulating for amount: {amount}")
         result = buy_gno_yes_and_no_amounts_with_sdai(amount, broadcast=broadcast)
         print(f"Result: {result}")
     elif num_script_args == 2:
         # Corresponds to the "main_legacy" block's behavior with 2 arguments
         gno_amount = float(sys.argv[2])
-        # print(f"Debug: Running legacy logic with amount: {amount}, gno_amount: {gno_amount}") # Optional debug print
         print(f"Simulating for amount: {amount} with GNO amount: {gno_amount}")
         result = buy_gno_yes_and_no_amounts_with_sdai_single(
             amount, gno_amount, None, broadcast=broadcast
@@ -439,7 +420,6 @@ if __name__ == "__main__":
         # Corresponds to the "main_legacy" block's behavior with 3 arguments
         gno_amount = float(sys.argv[2])
         liquidate_conditional_sdai_amount = float(sys.argv[3])
-        # print(f"Debug: Running legacy logic with amount: {amount}, gno_amount: {gno_amount}, liquidate: {liquidate_conditional_sdai_amount}") # Optional debug print
         print(
             f"Simulating for amount: {amount} with GNO amount: {gno_amount}, liquidating sDAI: {liquidate_conditional_sdai_amount}"
         )
