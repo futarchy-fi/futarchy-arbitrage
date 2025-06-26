@@ -69,6 +69,19 @@ ideal_price = pred_price * yes_price + (1 - pred_price) * no_price
 - If both YES and NO prices on Swapr < Balancer price → Buy conditional GNO
 - If both YES and NO prices on Swapr > Balancer price → Sell conditional GNO
 
+**Buy Conditional GNO Process** (`buy_cond.py`):
+1. **Split sDAI** into YES and NO conditional sDAI tokens using FutarchyRouter
+2. **Swap conditional sDAI to conditional GNO** on Swapr pools (both YES and NO)
+3. **Merge conditional GNO** back into regular GNO using FutarchyRouter
+4. **Handle imbalances**: If YES/NO amounts differ, liquidate excess conditional sDAI
+5. **Sell GNO for sDAI** on Balancer to complete the arbitrage loop
+
+**Conditional sDAI Liquidation** (`conditional_sdai_liquidation.py`):
+- Handles imbalances when YES and NO token amounts don't match
+- For excess YES tokens: Direct swap YES→sDAI on Swapr
+- For excess NO tokens: Buy YES tokens with sDAI, then merge back to sDAI
+- Uses 1% slippage tolerance for liquidation swaps
+
 **Configuration System**: Uses a modular config system in `src/config/` with:
 - Network settings (`network.py`)
 - Contract addresses and ABIs (`contracts.py`, `abis/`)
@@ -82,6 +95,14 @@ ideal_price = pred_price * yes_price + (1 - pred_price) * no_price
 - `SWAPR_POOL_PRED_YES_ADDRESS` - Swapr prediction YES pool
 - `SWAPR_POOL_NO_ADDRESS` - Swapr NO token pool
 - `BALANCER_POOL_ADDRESS` - Balancer pool address
+- `FUTARCHY_ROUTER_ADDRESS` - FutarchyRouter contract for splitting/merging tokens
+- `FUTARCHY_PROPOSAL_ADDRESS` - Futarchy proposal contract address
+- `SDAI_TOKEN_ADDRESS` - sDAI token contract
+- `GNO_TOKEN_ADDRESS` - GNO token contract
+- `SWAPR_SDAI_YES_ADDRESS` - Conditional sDAI YES token
+- `SWAPR_SDAI_NO_ADDRESS` - Conditional sDAI NO token
+- `SWAPR_GNO_YES_ADDRESS` - Conditional GNO YES token
+- `SWAPR_GNO_NO_ADDRESS` - Conditional GNO NO token
 
 ## Protocol Integration
 
@@ -99,3 +120,17 @@ The bot integrates with:
 - All price calculations use `Decimal` for precision
 - Trading amounts are specified in sDAI
 - The bot includes comprehensive logging and error handling
+
+### Code Style Guidelines
+- **Logging**: Use `print()` statements for arbitrage commands, `logging` module for helpers
+- **Comments**: Use section headers with dashes for major sections
+- **Handler Functions**: Transaction simulation handlers should be prefixed with `handle_`
+- **Debug Output**: Keep debug prints minimal; consolidate into single-line summaries
+- **Error Handling**: Add descriptive error messages with context
+
+### Transaction Flow
+The bot uses a simulation-first approach:
+1. Build transaction bundles as Tenderly-compatible dictionaries
+2. Simulate transactions to calculate optimal parameters
+3. Execute on-chain only after successful simulation
+4. Each transaction has an associated handler function for state tracking
