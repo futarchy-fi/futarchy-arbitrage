@@ -16,7 +16,7 @@ Usage
     SWAPR_POOL_PRED_YES_ADDRESS=0x… \
     SWAPR_POOL_NO_ADDRESS=0x…  \
     BALANCER_POOL_ADDRESS=0x…  \
-    python -m src.arbitrage_commands.discover_side <amount> [--send]
+    python -m src.arbitrage_commands.discover_side --amount <amount> --interval <interval> --tolerance <tolerance> [--send]
 """
 
 from __future__ import annotations
@@ -62,7 +62,7 @@ def fetch_balancer(pool: str, w3: Web3) -> Tuple[str, str, str]:
 # --------------------------------------------------------------------------- #
 
 
-def run_once(amount: float, broadcast: bool) -> None:
+def run_once(amount: float, tolerance: float, broadcast: bool) -> None:
     """Execute a single price check + optional trade."""
     addr_yes = os.getenv("SWAPR_POOL_YES_ADDRESS")
     addr_pred_yes = os.getenv("SWAPR_POOL_PRED_YES_ADDRESS")
@@ -102,7 +102,7 @@ def run_once(amount: float, broadcast: bool) -> None:
                 result = buy_gno_yes_and_no_amounts_with_sdai(amount, broadcast=False)
                 print(f"Simulated Result: {result}")
                 print(f"sDAI net: {result['sdai_net']}")
-                if result['sdai_net'] > -0.04:
+                if result['sdai_net'] > -tolerance:
                     print("→ Broadcasting transaction")
                     result = buy_gno_yes_and_no_amounts_with_sdai(amount, broadcast=True)
                     print(f"Result: {result}")
@@ -118,7 +118,7 @@ def run_once(amount: float, broadcast: bool) -> None:
                 result = sell_gno_yes_and_no_amounts_to_sdai(amount, broadcast=False)
                 print(f"Simulated Result: {result}")
                 print(f"sDAI net: {result['sdai_net']}")
-                if result['sdai_net'] > -0.04:
+                if result['sdai_net'] > -tolerance:
                     print("→ Broadcasting transaction")
                     result = sell_gno_yes_and_no_amounts_to_sdai(amount, broadcast=True)
                     print(f"Result: {result}")
@@ -151,26 +151,26 @@ def run_once(amount: float, broadcast: bool) -> None:
 
 def main() -> None:
     # ---- parse CLI once ---------------------------------------------------- #
-    SEND_FLAG = {"--send", "-s"}
-    broadcast = any(flag in sys.argv for flag in SEND_FLAG)
-    args = [arg for arg in sys.argv[1:] if arg not in SEND_FLAG]
-
-    if not args:
-        print("Usage: discover_side.py <amount> [--send]", file=sys.stderr)
-        sys.exit(2)
-
-    try:
-        amount = float(args[0])
-        interval = int(args[1])
-    except ValueError:
-        print("Error: <amount> must be a number.", file=sys.stderr)
-        sys.exit(2)
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Discover arbitrage opportunities and execute trades")
+    parser.add_argument("--amount", type=float, required=True, help="Amount to trade")
+    parser.add_argument("--interval", type=int, required=True, help="Interval between checks in seconds")
+    parser.add_argument("--tolerance", type=float, required=True, help="Profit tolerance threshold")
+    parser.add_argument("--send", "-s", action="store_true", help="Execute real transactions")
+    
+    args = parser.parse_args()
+    
+    amount = args.amount
+    interval = args.interval
+    tolerance = args.tolerance
+    broadcast = args.send
 
     # ---- main loop --------------------------------------------------------- #
     print(f"Starting discover_side monitor – interval: {interval} seconds\n")
     while True:
         try:
-            run_once(amount, broadcast)
+            run_once(amount, tolerance, broadcast)
         except KeyboardInterrupt:
             print("\nInterrupted – exiting.")
             break
