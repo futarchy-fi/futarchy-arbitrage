@@ -1,6 +1,6 @@
-"""Helper for simulating Balancer BatchRouter.swapExactIn (sell GNO → sDAI or buy GNO with sDAI) via Tenderly.
+"""Helper for simulating Balancer BatchRouter.swapExactIn (sell Company token → sDAI or buy Company token with sDAI) via Tenderly.
 
-Assumes the sender wallet already approved the required amount of GNO or sDAI to the BatchRouter.
+Assumes the sender wallet already approved the required amount of Company token or sDAI to the BatchRouter.
 Only builds and simulates the swap transaction – **does not** broadcast it on-chain.
 
 The helper exposes two public functions:
@@ -27,13 +27,13 @@ Usage example::
     client = TenderlyClient(w3)
     sender = os.environ["WALLET_ADDRESS"]
 
-    # sell 0.1 GNO and require at least 1 sDAI out
+    # sell 0.1 Company token and require at least 1 sDAI out
     amt_in = w3.to_wei(Decimal("0.1"), "ether")
     min_out = w3.to_wei(Decimal("1"), "ether")
 
     sell_gno_to_sdai(w3, client, amt_in, min_out, sender)
 
-The path hard-coded below is the canonical 2-hop GNO→WSTETH buffer→sDAI pool on
+The path hard-coded below is the canonical 2-hop Company token→WSTETH buffer→sDAI pool on
 Gnosis at the time of writing (May 2025). Update the constants if Balancer
 migrates liquidity.
 """
@@ -64,7 +64,7 @@ logger = logging.getLogger(__name__)
 # -----------------------------------------------------------------------------
 
 # Tokens
-GNO: ChecksumAddress = Web3.to_checksum_address("0x9c58bacc331c9aa871afd802db6379a98e80cedb")
+COMPANY_TOKEN: ChecksumAddress = Web3.to_checksum_address("0x9c58bacc331c9aa871afd802db6379a98e80cedb")
 SDAI: ChecksumAddress = Web3.to_checksum_address("0xaf204776c7245bf4147c2612bf6e5972ee483701")
 
 # Pools (Gnosis)
@@ -170,13 +170,13 @@ def build_sell_gno_to_sdai_swap_tx(
     weth_is_eth: bool = False,
     user_data: bytes = b"",
 ) -> Dict[str, Any]:
-    """Encode swapExactIn calldata for GNO → sDAI and wrap in a Tenderly tx dict."""
+    """Encode swapExactIn calldata for Company token → sDAI and wrap in a Tenderly tx dict."""
 
     router = _get_router(w3, router_addr)
 
     # SwapPathStep[] – two hops
     steps = [
-        # 1️⃣ GNO → buffer token (pool uses the same token addr for tokenOut)
+        # 1️⃣ Company token → buffer token (pool uses the same token addr for tokenOut)
         (
             BUFFER_POOL,  # pool address
             BUFFER_POOL,  # tokenOut address (router expects this redundancy)
@@ -192,7 +192,7 @@ def build_sell_gno_to_sdai_swap_tx(
 
     # SwapPathExactAmountIn
     path = (
-        GNO,  # tokenIn
+        COMPANY_TOKEN,  # tokenIn
         steps,
         int(amount_in_wei),
         int(min_amount_out_wei),
@@ -218,7 +218,7 @@ def build_buy_gno_to_sdai_swap_tx(
     weth_is_eth: bool = False,
     user_data: bytes = b"",
 ) -> Dict[str, Any]:
-    """Encode swapExactIn calldata for **buying GNO with sDAI**."""
+    """Encode swapExactIn calldata for **buying Company token with sDAI**."""
 
     # Log all function arguments
     print(f"=== build_buy_gno_to_sdai_swap_tx ARGUMENTS ===")
@@ -243,10 +243,10 @@ def build_buy_gno_to_sdai_swap_tx(
             BUFFER_POOL,
             False,
         ),
-        # 2️⃣ buffer token → GNO (buffer hop)
+        # 2️⃣ buffer token → Company token (buffer hop)
         (
             BUFFER_POOL,
-            GNO,
+            COMPANY_TOKEN,
             True,
         ),
     ]
@@ -254,7 +254,7 @@ def build_buy_gno_to_sdai_swap_tx(
     # Log swap path details
     print(f"=== SWAP PATH DETAILS ===")
     print(f"SDAI token address: {SDAI}")
-    print(f"GNO token address: {GNO}")
+    print(f"Company token address: {COMPANY_TOKEN}")
     print(f"FINAL_POOL: {FINAL_POOL}")
     print(f"BUFFER_POOL: {BUFFER_POOL}")
     print(f"steps: {steps}")
@@ -264,7 +264,7 @@ def build_buy_gno_to_sdai_swap_tx(
         SDAI,                     # tokenIn (sDAI)
         steps,
         int(amount_in_wei),       # exactAmountIn (sDAI)
-        int(min_amount_out_wei),  # minAmountOut  (GNO)
+        int(min_amount_out_wei),  # minAmountOut  (Company token)
     )
 
     print(f"=== SWAP PATH STRUCTURE ===")
@@ -379,7 +379,7 @@ def parse_broadcasted_swap_results(tx_hash: str) -> Optional[Dict[str, Decimal]]
         if len(log.topics) < 3:
             continue
         to_addr = "0x" + log.topics[2].hex()[26:]
-        if to_addr.lower() == sender.lower() and log.address.lower() in (SDAI.lower(), GNO.lower()):
+        if to_addr.lower() == sender.lower() and log.address.lower() in (SDAI.lower(), COMPANY_TOKEN.lower()):
             transferred = int(log.data.hex(), 16) if hasattr(log.data, "hex") else int(log.data, 16)
             output_wei += transferred
 
@@ -490,7 +490,7 @@ def main():  # pragma: no cover
     parser.add_argument("--min_out", type=float, default=1.0,
                         help="Minimum acceptable amount out (ether units)")
     parser.add_argument("--sell_gno", type=str, choices=["true", "false"], default="true",
-                        help="true (default) → sell GNO for sDAI; false → buy GNO with sDAI")
+                        help="true (default) → sell Company token for sDAI; false → buy Company token with sDAI")
     args = parser.parse_args()
 
     sender = os.getenv("WALLET_ADDRESS") or os.getenv("SENDER_ADDRESS")

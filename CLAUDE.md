@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a futarchy arbitrage bot for Gnosis Chain that monitors price discrepancies between Balancer pools and Swapr pools to execute profitable trades. The bot trades conditional GNO tokens (YES/NO tokens) against sDAI when prices diverge from the synthetic "ideal" price.
+This is a futarchy arbitrage bot for Gnosis Chain that monitors price discrepancies between Balancer pools and Swapr pools to execute profitable trades. The bot trades conditional Company tokens (YES/NO tokens) against sDAI when prices diverge from the synthetic "ideal" price.
 
 ## Environment Setup
 
@@ -69,15 +69,15 @@ ideal_price = pred_price * yes_price + (1 - pred_price) * no_price
 ```
 
 **Trading Logic**: 
-- If both YES and NO prices on Swapr < Balancer price → Buy conditional GNO
-- If both YES and NO prices on Swapr > Balancer price → Sell conditional GNO
+- If both YES and NO prices on Swapr < Balancer price → Buy conditional Company tokens
+- If both YES and NO prices on Swapr > Balancer price → Sell conditional Company tokens
 
-**Buy Conditional GNO Process** (`buy_cond.py`):
+**Buy Conditional Company Token Process** (`buy_cond.py`):
 1. **Split sDAI** into YES and NO conditional sDAI tokens using FutarchyRouter
-2. **Swap conditional sDAI to conditional GNO** on Swapr pools (both YES and NO)
-3. **Merge conditional GNO** back into regular GNO using FutarchyRouter
+2. **Swap conditional sDAI to conditional Company tokens** on Swapr pools (both YES and NO)
+3. **Merge conditional Company tokens** back into regular Company token using FutarchyRouter
 4. **Handle imbalances**: If YES/NO amounts differ, liquidate excess conditional sDAI
-5. **Sell GNO for sDAI** on Balancer to complete the arbitrage loop
+5. **Sell Company token for sDAI** on Balancer to complete the arbitrage loop
 
 **Conditional sDAI Liquidation** (`conditional_sdai_liquidation.py`):
 - Handles imbalances when YES and NO token amounts don't match
@@ -101,11 +101,11 @@ ideal_price = pred_price * yes_price + (1 - pred_price) * no_price
 - `FUTARCHY_ROUTER_ADDRESS` - FutarchyRouter contract for splitting/merging tokens
 - `FUTARCHY_PROPOSAL_ADDRESS` - Futarchy proposal contract address
 - `SDAI_TOKEN_ADDRESS` - sDAI token contract
-- `GNO_TOKEN_ADDRESS` - GNO token contract
+- `COMPANY_TOKEN_ADDRESS` - Company token contract (previously GNO)
 - `SWAPR_SDAI_YES_ADDRESS` - Conditional sDAI YES token
 - `SWAPR_SDAI_NO_ADDRESS` - Conditional sDAI NO token
-- `SWAPR_GNO_YES_ADDRESS` - Conditional GNO YES token
-- `SWAPR_GNO_NO_ADDRESS` - Conditional GNO NO token
+- `SWAPR_GNO_YES_ADDRESS` - Conditional Company YES token
+- `SWAPR_GNO_NO_ADDRESS` - Conditional Company NO token
 
 ## Protocol Integration
 
