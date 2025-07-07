@@ -25,7 +25,7 @@ acct     = Account.from_key(os.environ["PRIVATE_KEY"])
 router_addr      = w3.to_checksum_address(os.environ["FUTARCHY_ROUTER_ADDRESS"])
 proposal_addr    = w3.to_checksum_address(os.environ["FUTARCHY_PROPOSAL_ADDRESS"])
 collateral_addr  = w3.to_checksum_address(os.environ["SDAI_TOKEN_ADDRESS"])
-gno_collateral   = w3.to_checksum_address(os.environ["GNO_TOKEN_ADDRESS"])
+company_collateral   = w3.to_checksum_address(os.environ["COMPANY_TOKEN_ADDRESS"])
 
 token_yes_in  = w3.to_checksum_address(os.environ["SWAPR_SDAI_YES_ADDRESS"])
 token_yes_out = w3.to_checksum_address(os.environ["SWAPR_GNO_YES_ADDRESS"])
@@ -169,7 +169,7 @@ def buy_gno_yes_and_no_amounts_with_sdai(sdai_amount: float) -> List[str]:
     # ▶ 3 merge
     merge_tx = build_merge_tx_onchain(
         router_addr, proposal_addr,
-        gno_collateral, 0, acct.address
+        company_collateral, 0, acct.address
     )
 
     bundle = [split_tx, yes_swap, no_swap, merge_tx]

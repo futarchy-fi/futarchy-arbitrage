@@ -166,13 +166,13 @@ def main():  # pragma: no cover
 
     router_addr = os.getenv("FUTARCHY_ROUTER_ADDRESS")
     proposal_addr = os.getenv("FUTARCHY_PROPOSAL_ADDRESS")
-    collateral_addr = os.getenv("GNO_TOKEN_ADDRESS")
+    collateral_addr = os.getenv("COMPANY_TOKEN_ADDRESS")
     sender = os.getenv("WALLET_ADDRESS") or os.getenv("SENDER_ADDRESS")
 
     missing = [n for n, v in {
         "FUTARCHY_ROUTER_ADDRESS": router_addr,
         "FUTARCHY_PROPOSAL_ADDRESS": proposal_addr,
-        "GNO_TOKEN_ADDRESS": collateral_addr,
+        "COMPANY_TOKEN_ADDRESS": collateral_addr,
         "WALLET_ADDRESS/SENDER_ADDRESS": sender,
     }.items() if v is None]
     if missing:

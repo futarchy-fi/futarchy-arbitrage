@@ -26,7 +26,7 @@ acct     = Account.from_key(os.environ["PRIVATE_KEY"])
 router_addr      = w3.to_checksum_address(os.environ["FUTARCHY_ROUTER_ADDRESS"])
 proposal_addr    = w3.to_checksum_address(os.environ["FUTARCHY_PROPOSAL_ADDRESS"])
 collateral_addr  = w3.to_checksum_address(os.environ["SDAI_TOKEN_ADDRESS"])
-gno_collateral   = w3.to_checksum_address(os.environ["GNO_TOKEN_ADDRESS"])
+company_collateral   = w3.to_checksum_address(os.environ["COMPANY_TOKEN_ADDRESS"])
 
 token_yes_in  = w3.to_checksum_address(os.environ["SWAPR_GNO_YES_ADDRESS"])
 token_yes_out = w3.to_checksum_address(os.environ["SWAPR_SDAI_YES_ADDRESS"])
@@ -89,7 +89,7 @@ def build_buy_gno_to_sdai_swap_tx_onchain(
     router_addr = os.environ["BALANCER_ROUTER_ADDRESS"]
     router = w3.eth.contract(address=w3.to_checksum_address(router_addr), abi=BALANCER_ROUTER_ABI)
 
-    # SwapPathStep[] – two hops (reverse order for buying GNO with sDAI)
+    # SwapPathStep[] – two hops (reverse order for buying Company token with sDAI)
     steps = [
         # 1️⃣ sDAI → buffer token (direct pool swap)
         (FINAL_POOL, BUFFER_POOL, False),
@@ -231,9 +231,9 @@ def _send_bundle(bundle: List[Dict]) -> List[str]:
 def sell_gno_yes_and_no_amounts_to_sdai(sdai_amount: float) -> List[str]:
     """
     Execute the sell trade sequence **without** simulation:
-        1. buy GNO with sDAI via Balancer
-        2. split GNO into conditional GNO
-        3. swap both conditional GNO legs to conditional sDAI
+        1. buy Company token with sDAI via Balancer
+        2. split Company token into conditional tokens
+        3. swap both conditional token legs to conditional sDAI
         4. merge conditional sDAI back to plain sDAI
     Returns the list of transaction hashes.
     """
@@ -247,7 +247,7 @@ def sell_gno_yes_and_no_amounts_to_sdai(sdai_amount: float) -> List[str]:
     # ▶ 2 split the resulting GNO (using 0 for amount to use available balance)
     split_tx = build_split_tx_onchain(
         router_addr, proposal_addr,
-        gno_collateral, 0, acct.address
+        company_collateral, 0, acct.address
     )
 
     # ▶ 3 swap both conditional GNO to conditional sDAI (exact‑in, best‑effort)

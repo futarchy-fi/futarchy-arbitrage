@@ -33,7 +33,7 @@ token_no_out = w3.to_checksum_address(os.environ["SWAPR_GNO_NO_ADDRESS"])
 router_addr = w3.to_checksum_address(os.environ["FUTARCHY_ROUTER_ADDRESS"])
 proposal_addr = w3.to_checksum_address(os.environ["FUTARCHY_PROPOSAL_ADDRESS"])
 collateral_addr = w3.to_checksum_address(os.environ["SDAI_TOKEN_ADDRESS"])
-gno_collateral_addr = w3.to_checksum_address(os.environ["GNO_TOKEN_ADDRESS"])
+company_collateral_addr = w3.to_checksum_address(os.environ["COMPANY_TOKEN_ADDRESS"])
 
 # --------------------------------------------------------------------------- #
 # On-chain sender helper                                                      #
@@ -92,7 +92,7 @@ def build_step_2_merge_tx(gno_amount_in_wei):
         client,
         router_addr,
         proposal_addr,
-        gno_collateral_addr,
+        company_collateral_addr,
         int(gno_amount_in_wei),
         acct.address,
     )
@@ -227,7 +227,7 @@ def buy_gno_yes_and_no_amounts_with_sdai_single(
         client,
         router_addr,
         proposal_addr,
-        gno_collateral_addr,
+        company_collateral_addr,
         int(gno_amount_in_wei) if gno_amount_in_wei else 0,
         acct.address,
     )

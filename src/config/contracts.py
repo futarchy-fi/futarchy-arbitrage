@@ -26,7 +26,7 @@ CONTRACT_ADDRESSES: Dict[str, str] = {
     
     # Token contracts
     "baseCurrencyToken": "0xaf204776c7245bF4147c2612BF6e5972Ee483701",  # SDAI
-    "baseCompanyToken": "0x9C58BAcC331c9aa871AFD802DB6379a98e80CEdb",  # GNO
+    "baseCompanyToken": "0x9C58BAcC331c9aa871AFD802DB6379a98e80CEdb",  # Company token
     "currencyYesToken": "0x493A0D1c776f8797297Aa8B34594fBd0A7F8968a",
     "currencyNoToken": "0xE1133Ef862f3441880adADC2096AB67c63f6E102",
     "companyYesToken": "0x177304d505eCA60E1aE0dAF1bba4A4c4181dB8Ad",
