@@ -32,7 +32,7 @@ source futarchy_env/bin/activate && source .env.0x9590dAF4d5cd4009c3F9767C5E7668
     --tolerance 0.2
 
 # Side discovery
-source futarchy_env/bin/activate && source .env.0x9590dAF4d5cd4009c3F9767C5E7668175cFd37CF && python -m src.arbitrage_commands.discover_side \
+source futarchy_env/bin/activate && source .env.0x9590dAF4d5cd4009c3F9767C5E7668175cFd37CF && python -m src.arbitrage_commands.complex_bot \
     --amount 0.1 \
     --interval 120 \
     --tolerance 0.04
@@ -53,7 +53,7 @@ python -m pytest tests/
 ### Core Structure
 - `src/arbitrage_commands/` - Main trading strategies and bot logic
   - `simple_bot.py` - Main arbitrage bot that monitors prices and executes trades
-  - `discover_side.py` - Price discovery and side determination
+  - `complex_bot.py` - Price discovery and side determination
   - `buy_cond.py`, `sell_cond.py` - Conditional token trading logic
   - `*_onchain.py` - On-chain execution variants
 - `src/helpers/` - Utility functions for price fetching, swapping, and blockchain interaction
