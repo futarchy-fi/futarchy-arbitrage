@@ -1,0 +1,57 @@
+{
+  "timestamp": "2025-07-08T00:59:08.467Z",
+  "proposalId": "0xec50a351C0A4A122DC614058C0481Bb9487Abdaa",
+  "marketAddress": "0xec50a351C0A4A122DC614058C0481Bb9487Abdaa",
+  "pools": {
+    "yesPool": {
+      "address": "0x86042D97fd7D200AB25ed22b478650F042567E4e",
+      "tokenCompanySlot": 1,
+      "inverted": true
+    },
+    "noPool": {
+      "address": "0x2F9006c91CBb776D7958FFF0cc063A872ADC288C",
+      "tokenCompanySlot": 1,
+      "inverted": true
+    },
+    "thirdPool": {
+      "address": "0x9539e21ca8F6bF66bA99f838792397cEc065746D",
+      "tokenCompanySlot": 1,
+      "inverted": false
+    },
+    "predictionPools": {
+      "yes": "0x9539e21ca8F6bF66bA99f838792397cEc065746D",
+      "no": "0x86ef291888EA88eEe3c10A4d3b7D7524Ef548cF0"
+    }
+  },
+  "tokens": {
+    "conditionalTokens": {
+      "YES_sDAI": "0x653F609AF3902610E91e779B219e647dde02d627",
+      "NO_sDAI": "0x0eeDFC905C835671721fD23799865B838bf55CE4",
+      "YES_GNO": "0x893C3159fc0F596E0AF677eECFCB4537c7A092BA",
+      "NO_GNO": "0xd87B599E54Db1510BddB62d9B481615277db73A1"
+    },
+    "baseTokens": {
+      "currency": {
+        "symbol": "sDAI",
+        "address": "0xaf204776c7245bF4147c2612BF6e5972Ee483701"
+      },
+      "company": {
+        "symbol": "PNK",
+        "address": "0x37b60f4E9A31A64cCc0024dce7D0fD07eAA0F7B3"
+      }
+    }
+  },
+  "contracts": {
+    "futarchyRouter": "0x7495a583ba85875d59407781b4958ED6e0E1228f",
+    "conditionalTokens": "0xCeAfDD6bc0bEF976fdCd1112955828E00543c0Ce",
+    "wrapperService": "0xc14f5d2B9d6945EF1BA93f8dB20294b90FA5b5b1"
+  },
+  "prices": {
+    "yesPrice": 166.55132180002704,
+    "noPrice": null,
+    "newYesPrice": null,
+    "newNoPrice": null,
+    "isLoading": false,
+    "error": null
+  }
+}

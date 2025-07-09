@@ -32,56 +32,41 @@ ERC20_ABI = [
 # --------------------------------------------------------------------------- #
 MAX_UINT256 = (1 << 256) - 1         # 2**256 − 1
 
-ALLOWANCES: List[Tuple[str, str, int]] = [
-    # (token                      , spender                       , amount_wei)
-    # ----------------------------------------------------------------------- #
-    # SwapR router – swaps that use a token *as input*                        #
-    (os.environ["SDAI_TOKEN_ADDRESS"],  # sDAI
-     os.environ["SWAPR_ROUTER_ADDRESS"],  # SwapR Router
-     MAX_UINT256),
-    (os.environ["SWAPR_SDAI_YES_ADDRESS"],  # sDAI-YES
-     os.environ["SWAPR_ROUTER_ADDRESS"],
-     MAX_UINT256),
-    (os.environ["SWAPR_SDAI_NO_ADDRESS"],  # sDAI-NO
-     os.environ["SWAPR_ROUTER_ADDRESS"],
-     MAX_UINT256),
-    (os.environ["SWAPR_GNO_YES_ADDRESS"],  # GNO-YES
-     os.environ["SWAPR_ROUTER_ADDRESS"],
-     MAX_UINT256),
-    (os.environ["SWAPR_GNO_NO_ADDRESS"],  # GNO-NO
-     os.environ["SWAPR_ROUTER_ADDRESS"],
-     MAX_UINT256),
+# Build allowances list dynamically, skipping missing env vars
+ALLOWANCES: List[Tuple[str, str, int]] = []
 
-    # Futarchy router – splitting collateral and later merging positions      #
-    (os.environ["SDAI_TOKEN_ADDRESS"],  # sDAI (collateral)
-     os.environ["FUTARCHY_ROUTER_ADDRESS"],  # Futarchy Router
-     MAX_UINT256),
-    (os.environ["COMPANY_TOKEN_ADDRESS"],  # Company token (collateral)
-     os.environ["FUTARCHY_ROUTER_ADDRESS"],  # Futarchy Router
-     MAX_UINT256),
-    (os.environ["SWAPR_GNO_YES_ADDRESS"],  # GNO-YES
-     os.environ["FUTARCHY_ROUTER_ADDRESS"],
-     MAX_UINT256),
-    (os.environ["SWAPR_GNO_NO_ADDRESS"],  # GNO-NO
-     os.environ["FUTARCHY_ROUTER_ADDRESS"],
-     MAX_UINT256),
-    (os.environ["SWAPR_SDAI_YES_ADDRESS"],  # sDAI-YES
-     os.environ["FUTARCHY_ROUTER_ADDRESS"],
-     MAX_UINT256),
-    (os.environ["SWAPR_SDAI_NO_ADDRESS"],  # sDAI-NO
-     os.environ["FUTARCHY_ROUTER_ADDRESS"],
-     MAX_UINT256),
+# Helper function to safely add allowance
+def add_allowance(token_env: str, spender_env: str, amount: int, comment: str = "") -> None:
+    if token_env in os.environ and spender_env in os.environ:
+        ALLOWANCES.append((os.environ[token_env], os.environ[spender_env], amount))
+    else:
+        missing_vars = []
+        if token_env not in os.environ:
+            missing_vars.append(token_env)
+        if spender_env not in os.environ:
+            missing_vars.append(spender_env)
+        print(f"⚠️  Skipping allowance {comment}: missing {', '.join(missing_vars)}")
 
-    # Balancer router – selling plain Company token for sDAI                     #
-    (os.environ["COMPANY_TOKEN_ADDRESS"],  # Company token
-     os.environ["BALANCER_ROUTER_ADDRESS"],  # Balancer Router
-     MAX_UINT256),
+# SwapR router – swaps that use a token *as input*
+add_allowance("SDAI_TOKEN_ADDRESS", "SWAPR_ROUTER_ADDRESS", MAX_UINT256, "sDAI → SwapR Router")
+add_allowance("SWAPR_SDAI_YES_ADDRESS", "SWAPR_ROUTER_ADDRESS", MAX_UINT256, "sDAI-YES → SwapR Router")
+add_allowance("SWAPR_SDAI_NO_ADDRESS", "SWAPR_ROUTER_ADDRESS", MAX_UINT256, "sDAI-NO → SwapR Router")
+add_allowance("SWAPR_GNO_YES_ADDRESS", "SWAPR_ROUTER_ADDRESS", MAX_UINT256, "GNO-YES → SwapR Router")
+add_allowance("SWAPR_GNO_NO_ADDRESS", "SWAPR_ROUTER_ADDRESS", MAX_UINT256, "GNO-NO → SwapR Router")
 
-    # Balancer router – buying Company token with sDAI                           #
-    (os.environ["SDAI_TOKEN_ADDRESS"],  # sDAI
-     os.environ["BALANCER_ROUTER_ADDRESS"],  # Balancer Router
-     MAX_UINT256),
-]
+# Futarchy router – splitting collateral and later merging positions
+add_allowance("SDAI_TOKEN_ADDRESS", "FUTARCHY_ROUTER_ADDRESS", MAX_UINT256, "sDAI → Futarchy Router")
+add_allowance("COMPANY_TOKEN_ADDRESS", "FUTARCHY_ROUTER_ADDRESS", MAX_UINT256, "Company token → Futarchy Router")
+add_allowance("SWAPR_GNO_YES_ADDRESS", "FUTARCHY_ROUTER_ADDRESS", MAX_UINT256, "GNO-YES → Futarchy Router")
+add_allowance("SWAPR_GNO_NO_ADDRESS", "FUTARCHY_ROUTER_ADDRESS", MAX_UINT256, "GNO-NO → Futarchy Router")
+add_allowance("SWAPR_SDAI_YES_ADDRESS", "FUTARCHY_ROUTER_ADDRESS", MAX_UINT256, "sDAI-YES → Futarchy Router")
+add_allowance("SWAPR_SDAI_NO_ADDRESS", "FUTARCHY_ROUTER_ADDRESS", MAX_UINT256, "sDAI-NO → Futarchy Router")
+
+# Balancer router – selling plain Company token for sDAI
+add_allowance("COMPANY_TOKEN_ADDRESS", "BALANCER_ROUTER_ADDRESS", MAX_UINT256, "Company token → Balancer Router")
+
+# Balancer router – buying Company token with sDAI
+add_allowance("SDAI_TOKEN_ADDRESS", "BALANCER_ROUTER_ADDRESS", MAX_UINT256, "sDAI → Balancer Router")
 
 # --------------------------------------------------------------------------- #
 # 3️⃣  Push on-chain approvals                                                #
