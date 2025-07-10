@@ -23,6 +23,16 @@ ERC20_ABI = [
             {"name": "amount",  "type": "uint256"},
         ],
         "outputs": [{"name": "", "type": "bool"}],
+    },
+    {
+        "name": "allowance",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [
+            {"name": "owner", "type": "address"},
+            {"name": "spender", "type": "address"},
+        ],
+        "outputs": [{"name": "", "type": "uint256"}],
     }
 ]
 
@@ -68,6 +78,17 @@ add_allowance("COMPANY_TOKEN_ADDRESS", "BALANCER_ROUTER_ADDRESS", MAX_UINT256, "
 # Balancer router – buying Company token with sDAI
 add_allowance("SDAI_TOKEN_ADDRESS", "BALANCER_ROUTER_ADDRESS", MAX_UINT256, "sDAI → Balancer Router")
 
+# CowSwap GPv2 Settlement – sells & buys any token
+add_allowance("SDAI_TOKEN_ADDRESS", "GPV2_SETTLEMENT_ADDRESS", MAX_UINT256, "sDAI → CowSwap")
+add_allowance("COMPANY_TOKEN_ADDRESS", "GPV2_SETTLEMENT_ADDRESS", MAX_UINT256, "Company token → CowSwap")
+
+# Add PNK token directly since it's not in env vars
+PNK_TOKEN_ADDRESS = "0x37b60f4E9A31A64cCc0024dce7D0fD07eAA0F7B3"  # PNK on Gnosis Chain
+if "GPV2_SETTLEMENT_ADDRESS" in os.environ:
+    ALLOWANCES.append((PNK_TOKEN_ADDRESS, os.environ["GPV2_SETTLEMENT_ADDRESS"], MAX_UINT256))
+else:
+    print("⚠️  Skipping allowance PNK → CowSwap: missing GPV2_SETTLEMENT_ADDRESS")
+
 # --------------------------------------------------------------------------- #
 # 3️⃣  Push on-chain approvals                                                #
 # --------------------------------------------------------------------------- #
@@ -79,6 +100,14 @@ def send_allowances() -> None:
 
         # Obtain an ERC20 contract instance (Web3 v6+ requires keyword args)
         token_contract = w3.eth.contract(address=token, abi=ERC20_ABI)
+
+        # Check current allowance
+        current_allowance = token_contract.functions.allowance(acct.address, spender).call()
+        
+        # Skip if already has max allowance
+        if current_allowance == MAX_UINT256:
+            print(f"✓ {spender[:6]}… already has max allowance for {token[:6]}… (skipping)")
+            continue
 
         tx = token_contract.functions.approve(
             spender, amount
