@@ -21,3 +21,6 @@ passthrough_router_swap_temp.py
 
 # Verification files
 verify_key.py
+
+# Debug files
+.debug/
