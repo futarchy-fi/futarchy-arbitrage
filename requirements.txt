@@ -4,3 +4,5 @@ eth-utils
 eth-keys
 requests
 python-dotenv
+supabase
+tabulate
