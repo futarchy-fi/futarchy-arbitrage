@@ -11,17 +11,17 @@ from src.helpers.cowswap_trade import build_order, sign_order, submit_order, get
 # Token addresses on Gnosis Chain
 PNK_TOKEN_ADDRESS = "0x37b60f4E9A31A64cCc0024dce7D0fD07eAA0F7B3"  # PNK on Gnosis
 SDAI_TOKEN_ADDRESS = os.environ["SDAI_TOKEN_ADDRESS"]
-
+sell_amount=Decimal("10000")
 # Build order to sell 1 PNK for sDAI
 order = build_order(
     sell_token=PNK_TOKEN_ADDRESS,
     buy_token=SDAI_TOKEN_ADDRESS,
-    sell_amount=Decimal("1"),  # 1 PNK
+    sell_amount=sell_amount,
     # No buy_amount specified - let CowSwap find the best price
 )
 
 print(f"Order details:")
-print(f"  Sell: 1 PNK ({PNK_TOKEN_ADDRESS})")
+print(f"  Sell: {sell_amount} PNK ({PNK_TOKEN_ADDRESS})")
 print(f"  Buy: sDAI ({SDAI_TOKEN_ADDRESS})")
 print(f"  Valid for: {order['validTo'] - int(time.time())} seconds")
 
