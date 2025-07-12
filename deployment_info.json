@@ -1,26 +1,11 @@
 {
-  "address": "0xB85F2463b18c4065eE9135214eA2D0F9fD9954f4",
+  "address": "0xf276e5d62978F0E79089a4B7867A2AD97E3c9be5",
   "abi": [
     {
       "inputs": [
         {
           "internalType": "address",
           "name": "_owner",
-          "type": "address"
-        },
-        {
-          "internalType": "address",
-          "name": "_futarchyRouter",
-          "type": "address"
-        },
-        {
-          "internalType": "address",
-          "name": "_swaprRouter",
-          "type": "address"
-        },
-        {
-          "internalType": "address",
-          "name": "_balancerVault",
           "type": "address"
         }
       ],
@@ -33,26 +18,8 @@
         {
           "indexed": true,
           "internalType": "address",
-          "name": "tokenIn",
+          "name": "token",
           "type": "address"
-        },
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "tokenOut",
-          "type": "address"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "amountIn",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "amountOut",
-          "type": "uint256"
         },
         {
           "indexed": false,
@@ -61,7 +28,7 @@
           "type": "uint256"
         }
       ],
-      "name": "ArbitrageExecuted",
+      "name": "ArbitrageProfit",
       "type": "event"
     },
     {
@@ -70,42 +37,40 @@
         {
           "indexed": false,
           "internalType": "uint256",
-          "name": "amountIn",
+          "name": "callsCount",
           "type": "uint256"
         },
         {
           "indexed": false,
           "internalType": "uint256",
-          "name": "companyTokensOut",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "sdaiOut",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "profit",
+          "name": "successCount",
           "type": "uint256"
         }
       ],
-      "name": "ConditionalArbitrageExecuted",
+      "name": "MulticallExecuted",
       "type": "event"
     },
     {
-      "inputs": [],
-      "name": "balancerVault",
-      "outputs": [
+      "inputs": [
         {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
+          "internalType": "address[]",
+          "name": "tokens",
+          "type": "address[]"
+        },
+        {
+          "internalType": "address[]",
+          "name": "spenders",
+          "type": "address[]"
+        },
+        {
+          "internalType": "uint256[]",
+          "name": "amounts",
+          "type": "uint256[]"
         }
       ],
-      "stateMutability": "view",
+      "name": "batchApprove",
+      "outputs": [],
+      "stateMutability": "nonpayable",
       "type": "function"
     },
     {
@@ -114,71 +79,31 @@
           "components": [
             {
               "internalType": "address",
-              "name": "proposalAddress",
+              "name": "target",
               "type": "address"
-            },
-            {
-              "internalType": "address",
-              "name": "sdaiToken",
-              "type": "address"
-            },
-            {
-              "internalType": "address",
-              "name": "companyToken",
-              "type": "address"
-            },
-            {
-              "internalType": "address",
-              "name": "sdaiYesToken",
-              "type": "address"
-            },
-            {
-              "internalType": "address",
-              "name": "sdaiNoToken",
-              "type": "address"
-            },
-            {
-              "internalType": "address",
-              "name": "companyYesToken",
-              "type": "address"
-            },
-            {
-              "internalType": "address",
-              "name": "companyNoToken",
-              "type": "address"
-            },
-            {
-              "internalType": "uint256",
-              "name": "amountIn",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "minProfit",
-              "type": "uint256"
             },
             {
               "internalType": "bytes",
-              "name": "balancerSwapData",
-              "type": "bytes"
-            },
-            {
-              "internalType": "bytes",
-              "name": "swaprYesSwapData",
-              "type": "bytes"
-            },
-            {
-              "internalType": "bytes",
-              "name": "swaprNoSwapData",
+              "name": "callData",
               "type": "bytes"
             }
           ],
-          "internalType": "struct FutarchyArbitrageExecutor.ConditionalArbitrageParams",
-          "name": "params",
-          "type": "tuple"
+          "internalType": "struct FutarchyArbitrageExecutor.Call[]",
+          "name": "calls",
+          "type": "tuple[]"
+        },
+        {
+          "internalType": "address",
+          "name": "profitToken",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "minProfit",
+          "type": "uint256"
         }
       ],
-      "name": "executeBuyConditionalArbitrage",
+      "name": "executeArbitrage",
       "outputs": [
         {
           "internalType": "uint256",
@@ -192,95 +117,94 @@
     {
       "inputs": [
         {
-          "components": [
-            {
-              "internalType": "address",
-              "name": "proposalAddress",
-              "type": "address"
-            },
-            {
-              "internalType": "address",
-              "name": "sdaiToken",
-              "type": "address"
-            },
-            {
-              "internalType": "address",
-              "name": "companyToken",
-              "type": "address"
-            },
-            {
-              "internalType": "address",
-              "name": "sdaiYesToken",
-              "type": "address"
-            },
-            {
-              "internalType": "address",
-              "name": "sdaiNoToken",
-              "type": "address"
-            },
-            {
-              "internalType": "address",
-              "name": "companyYesToken",
-              "type": "address"
-            },
-            {
-              "internalType": "address",
-              "name": "companyNoToken",
-              "type": "address"
-            },
-            {
-              "internalType": "uint256",
-              "name": "amountIn",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "minProfit",
-              "type": "uint256"
-            },
-            {
-              "internalType": "bytes",
-              "name": "balancerSwapData",
-              "type": "bytes"
-            },
-            {
-              "internalType": "bytes",
-              "name": "swaprYesSwapData",
-              "type": "bytes"
-            },
-            {
-              "internalType": "bytes",
-              "name": "swaprNoSwapData",
-              "type": "bytes"
-            }
-          ],
-          "internalType": "struct FutarchyArbitrageExecutor.ConditionalArbitrageParams",
-          "name": "params",
-          "type": "tuple"
+          "internalType": "address",
+          "name": "token",
+          "type": "address"
         }
       ],
-      "name": "executeSellConditionalArbitrage",
+      "name": "getBalance",
       "outputs": [
         {
           "internalType": "uint256",
-          "name": "profit",
+          "name": "",
           "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "components": [
+            {
+              "internalType": "address",
+              "name": "target",
+              "type": "address"
+            },
+            {
+              "internalType": "bytes",
+              "name": "callData",
+              "type": "bytes"
+            }
+          ],
+          "internalType": "struct FutarchyArbitrageExecutor.Call[]",
+          "name": "calls",
+          "type": "tuple[]"
+        }
+      ],
+      "name": "multicall",
+      "outputs": [
+        {
+          "components": [
+            {
+              "internalType": "bool",
+              "name": "success",
+              "type": "bool"
+            },
+            {
+              "internalType": "bytes",
+              "name": "returnData",
+              "type": "bytes"
+            }
+          ],
+          "internalType": "struct FutarchyArbitrageExecutor.Result[]",
+          "name": "returnData",
+          "type": "tuple[]"
         }
       ],
       "stateMutability": "nonpayable",
       "type": "function"
     },
     {
-      "inputs": [],
-      "name": "futarchyRouter",
-      "outputs": [
+      "inputs": [
         {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
+          "components": [
+            {
+              "internalType": "address",
+              "name": "target",
+              "type": "address"
+            },
+            {
+              "internalType": "bytes",
+              "name": "callData",
+              "type": "bytes"
+            }
+          ],
+          "internalType": "struct FutarchyArbitrageExecutor.Call[]",
+          "name": "calls",
+          "type": "tuple[]"
         }
       ],
-      "stateMutability": "view",
+      "name": "multicallStrict",
+      "outputs": [
+        {
+          "internalType": "bytes[]",
+          "name": "returnData",
+          "type": "bytes[]"
+        }
+      ],
+      "stateMutability": "nonpayable",
       "type": "function"
     },
     {
@@ -294,6 +218,42 @@
         }
       ],
       "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "token",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "pullToken",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "token",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "pushToken",
+      "outputs": [],
+      "stateMutability": "nonpayable",
       "type": "function"
     },
     {
@@ -324,87 +284,25 @@
     {
       "inputs": [
         {
-          "components": [
-            {
-              "internalType": "address",
-              "name": "proposalAddress",
-              "type": "address"
-            },
-            {
-              "internalType": "address",
-              "name": "sdaiToken",
-              "type": "address"
-            },
-            {
-              "internalType": "address",
-              "name": "companyToken",
-              "type": "address"
-            },
-            {
-              "internalType": "address",
-              "name": "sdaiYesToken",
-              "type": "address"
-            },
-            {
-              "internalType": "address",
-              "name": "sdaiNoToken",
-              "type": "address"
-            },
-            {
-              "internalType": "address",
-              "name": "companyYesToken",
-              "type": "address"
-            },
-            {
-              "internalType": "address",
-              "name": "companyNoToken",
-              "type": "address"
-            },
-            {
-              "internalType": "uint256",
-              "name": "amountIn",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "minProfit",
-              "type": "uint256"
-            },
-            {
-              "internalType": "bytes",
-              "name": "balancerSwapData",
-              "type": "bytes"
-            },
-            {
-              "internalType": "bytes",
-              "name": "swaprYesSwapData",
-              "type": "bytes"
-            },
-            {
-              "internalType": "bytes",
-              "name": "swaprNoSwapData",
-              "type": "bytes"
-            }
-          ],
-          "internalType": "struct FutarchyArbitrageExecutor.ConditionalArbitrageParams",
-          "name": "params",
-          "type": "tuple"
-        }
-      ],
-      "name": "simulateBuyConditional",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "expectedProfit",
-          "type": "uint256"
+          "internalType": "address",
+          "name": "target",
+          "type": "address"
         },
         {
-          "internalType": "bool",
-          "name": "profitable",
-          "type": "bool"
+          "internalType": "bytes",
+          "name": "data",
+          "type": "bytes"
         }
       ],
-      "stateMutability": "view",
+      "name": "simulateCall",
+      "outputs": [
+        {
+          "internalType": "bytes",
+          "name": "",
+          "type": "bytes"
+        }
+      ],
+      "stateMutability": "nonpayable",
       "type": "function"
     },
     {
@@ -413,97 +311,41 @@
           "components": [
             {
               "internalType": "address",
-              "name": "proposalAddress",
+              "name": "target",
               "type": "address"
-            },
-            {
-              "internalType": "address",
-              "name": "sdaiToken",
-              "type": "address"
-            },
-            {
-              "internalType": "address",
-              "name": "companyToken",
-              "type": "address"
-            },
-            {
-              "internalType": "address",
-              "name": "sdaiYesToken",
-              "type": "address"
-            },
-            {
-              "internalType": "address",
-              "name": "sdaiNoToken",
-              "type": "address"
-            },
-            {
-              "internalType": "address",
-              "name": "companyYesToken",
-              "type": "address"
-            },
-            {
-              "internalType": "address",
-              "name": "companyNoToken",
-              "type": "address"
-            },
-            {
-              "internalType": "uint256",
-              "name": "amountIn",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "minProfit",
-              "type": "uint256"
             },
             {
               "internalType": "bytes",
-              "name": "balancerSwapData",
-              "type": "bytes"
-            },
-            {
-              "internalType": "bytes",
-              "name": "swaprYesSwapData",
-              "type": "bytes"
-            },
-            {
-              "internalType": "bytes",
-              "name": "swaprNoSwapData",
+              "name": "callData",
               "type": "bytes"
             }
           ],
-          "internalType": "struct FutarchyArbitrageExecutor.ConditionalArbitrageParams",
-          "name": "params",
-          "type": "tuple"
+          "internalType": "struct FutarchyArbitrageExecutor.Call[]",
+          "name": "calls",
+          "type": "tuple[]"
         }
       ],
-      "name": "simulateSellConditional",
+      "name": "simulateMulticall",
       "outputs": [
         {
-          "internalType": "uint256",
-          "name": "expectedProfit",
-          "type": "uint256"
-        },
-        {
-          "internalType": "bool",
-          "name": "profitable",
-          "type": "bool"
+          "components": [
+            {
+              "internalType": "bool",
+              "name": "success",
+              "type": "bool"
+            },
+            {
+              "internalType": "bytes",
+              "name": "returnData",
+              "type": "bytes"
+            }
+          ],
+          "internalType": "struct FutarchyArbitrageExecutor.Result[]",
+          "name": "results",
+          "type": "tuple[]"
         }
       ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "swaprRouter",
-      "outputs": [
-        {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
-        }
-      ],
-      "stateMutability": "view",
+      "stateMutability": "nonpayable",
       "type": "function"
     },
     {
@@ -511,14 +353,11 @@
       "type": "receive"
     }
   ],
-  "tx_hash": "0xc3d70cbd86583872d25e63618c9a5305c18750145f0f7d7a2b72bbab85480e22",
-  "block_number": 41045283,
+  "tx_hash": "0xbbe728f023fc60252801dda910fd793e9cb6f9c80c76bedbb62e20effc972631",
+  "block_number": 41045624,
   "deployer": "0x91c612a37b8365C2db937388d7b424fe03D62850",
-  "source_code": "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.19;\n\ninterface IERC20 {\n    function transfer(address to, uint256 amount) external returns (bool);\n    function transferFrom(address from, address to, uint256 amount) external returns (bool);\n    function balanceOf(address account) external view returns (uint256);\n    function approve(address spender, uint256 amount) external returns (bool);\n    function allowance(address owner, address spender) external view returns (uint256);\n}\n\ninterface IFutarchyRouter {\n    function splitPosition(address proposal, address collateralToken, uint256 amount) external;\n    function mergePositions(address proposal, address collateralToken, uint256 amount) external;\n}\n\ninterface ISwaprRouter {\n    struct ExactInputSingleParams {\n        address tokenIn;\n        address tokenOut;\n        uint24 fee;\n        address recipient;\n        uint256 deadline;\n        uint256 amountIn;\n        uint256 amountOutMinimum;\n        uint160 sqrtPriceLimitX96;\n    }\n    \n    function exactInputSingle(ExactInputSingleParams calldata params) external returns (uint256 amountOut);\n}\n\ninterface IBalancerVault {\n    struct SingleSwap {\n        bytes32 poolId;\n        uint8 kind;\n        address assetIn;\n        address assetOut;\n        uint256 amount;\n        bytes userData;\n    }\n    \n    struct FundManagement {\n        address sender;\n        bool fromInternalBalance;\n        address payable recipient;\n        bool toInternalBalance;\n    }\n    \n    function swap(\n        SingleSwap memory singleSwap,\n        FundManagement memory funds,\n        uint256 limit,\n        uint256 deadline\n    ) external returns (uint256);\n}\n\ncontract FutarchyArbitrageExecutor {\n    address public immutable owner;\n    address public immutable futarchyRouter;\n    address public immutable swaprRouter;\n    address public immutable balancerVault;\n    \n    uint256 private constant MAX_UINT = type(uint256).max;\n    uint256 private constant DEADLINE_BUFFER = 300; // 5 minutes\n    \n    struct ArbitragePath {\n        address tokenIn;\n        address tokenOut;\n        address[] intermediateTokens;\n        bytes[] swapData;\n        uint256 amountIn;\n        uint256 minAmountOut;\n    }\n    \n    struct ConditionalArbitrageParams {\n        address proposalAddress;\n        address sdaiToken;\n        address companyToken;\n        address sdaiYesToken;\n        address sdaiNoToken;\n        address companyYesToken;\n        address companyNoToken;\n        uint256 amountIn;\n        uint256 minProfit;\n        bytes balancerSwapData;\n        bytes swaprYesSwapData;\n        bytes swaprNoSwapData;\n    }\n    \n    event ArbitrageExecuted(\n        address indexed tokenIn,\n        address indexed tokenOut,\n        uint256 amountIn,\n        uint256 amountOut,\n        uint256 profit\n    );\n    \n    event ConditionalArbitrageExecuted(\n        uint256 amountIn,\n        uint256 companyTokensOut,\n        uint256 sdaiOut,\n        uint256 profit\n    );\n    \n    modifier onlyOwner() {\n        require(msg.sender == owner, \"Only owner can execute\");\n        _;\n    }\n    \n    constructor(\n        address _owner,\n        address _futarchyRouter,\n        address _swaprRouter,\n        address _balancerVault\n    ) {\n        require(_owner != address(0), \"Invalid owner\");\n        require(_futarchyRouter != address(0), \"Invalid futarchy router\");\n        require(_swaprRouter != address(0), \"Invalid swapr router\");\n        require(_balancerVault != address(0), \"Invalid balancer vault\");\n        \n        owner = _owner;\n        futarchyRouter = _futarchyRouter;\n        swaprRouter = _swaprRouter;\n        balancerVault = _balancerVault;\n    }\n    \n    function executeBuyConditionalArbitrage(\n        ConditionalArbitrageParams calldata params\n    ) external onlyOwner returns (uint256 profit) {\n        // Pull sDAI from owner\n        IERC20(params.sdaiToken).transferFrom(owner, address(this), params.amountIn);\n        \n        uint256 initialBalance = IERC20(params.sdaiToken).balanceOf(address(this));\n        \n        // Step 1: Split sDAI into conditional tokens\n        _approveIfNeeded(params.sdaiToken, futarchyRouter, params.amountIn);\n        IFutarchyRouter(futarchyRouter).splitPosition(params.proposalAddress, params.sdaiToken, params.amountIn);\n        \n        // Step 2: Swap conditional sDAI to conditional Company tokens on Swapr\n        uint256 yesBalance = IERC20(params.sdaiYesToken).balanceOf(address(this));\n        uint256 noBalance = IERC20(params.sdaiNoToken).balanceOf(address(this));\n        \n        // Swap YES tokens\n        _approveIfNeeded(params.sdaiYesToken, swaprRouter, yesBalance);\n        uint256 companyYesOut = _executeSwaprSwap(\n            params.sdaiYesToken,\n            params.companyYesToken,\n            yesBalance,\n            params.swaprYesSwapData\n        );\n        \n        // Swap NO tokens\n        _approveIfNeeded(params.sdaiNoToken, swaprRouter, noBalance);\n        uint256 companyNoOut = _executeSwaprSwap(\n            params.sdaiNoToken,\n            params.companyNoToken,\n            noBalance,\n            params.swaprNoSwapData\n        );\n        \n        // Step 3: Merge conditional Company tokens\n        uint256 mergeAmount = companyYesOut < companyNoOut ? companyYesOut : companyNoOut;\n        _approveIfNeeded(params.companyYesToken, futarchyRouter, mergeAmount);\n        _approveIfNeeded(params.companyNoToken, futarchyRouter, mergeAmount);\n        IFutarchyRouter(futarchyRouter).mergePositions(params.proposalAddress, params.companyToken, mergeAmount);\n        \n        // Step 4: Handle imbalances (liquidate excess conditional tokens)\n        if (companyYesOut > mergeAmount) {\n            // Excess YES tokens - swap back to sDAI\n            uint256 excessYes = companyYesOut - mergeAmount;\n            _approveIfNeeded(params.companyYesToken, swaprRouter, excessYes);\n            _executeSwaprSwap(\n                params.companyYesToken,\n                params.sdaiToken,\n                excessYes,\n                params.swaprYesSwapData\n            );\n        } else if (companyNoOut > mergeAmount) {\n            // Excess NO tokens - swap back to sDAI\n            uint256 excessNo = companyNoOut - mergeAmount;\n            _approveIfNeeded(params.companyNoToken, swaprRouter, excessNo);\n            _executeSwaprSwap(\n                params.companyNoToken,\n                params.sdaiToken,\n                excessNo,\n                params.swaprNoSwapData\n            );\n        }\n        \n        // Step 5: Sell Company tokens on Balancer\n        uint256 companyBalance = IERC20(params.companyToken).balanceOf(address(this));\n        _approveIfNeeded(params.companyToken, balancerVault, companyBalance);\n        uint256 sdaiOut = _executeBalancerSwap(\n            params.companyToken,\n            params.sdaiToken,\n            companyBalance,\n            params.balancerSwapData\n        );\n        \n        // Calculate profit and verify minimum\n        uint256 finalBalance = IERC20(params.sdaiToken).balanceOf(address(this));\n        profit = finalBalance > initialBalance ? finalBalance - initialBalance : 0;\n        require(profit >= params.minProfit, \"Insufficient profit\");\n        \n        // Transfer all sDAI back to owner\n        IERC20(params.sdaiToken).transfer(owner, finalBalance);\n        \n        emit ConditionalArbitrageExecuted(params.amountIn, mergeAmount, sdaiOut, profit);\n    }\n    \n    function executeSellConditionalArbitrage(\n        ConditionalArbitrageParams calldata params\n    ) external onlyOwner returns (uint256 profit) {\n        // Pull Company tokens from owner\n        IERC20(params.companyToken).transferFrom(owner, address(this), params.amountIn);\n        \n        uint256 initialSdaiBalance = IERC20(params.sdaiToken).balanceOf(owner);\n        \n        // Step 1: Buy sDAI with Company tokens on Balancer\n        _approveIfNeeded(params.companyToken, balancerVault, params.amountIn);\n        uint256 sdaiOut = _executeBalancerSwap(\n            params.companyToken,\n            params.sdaiToken,\n            params.amountIn,\n            params.balancerSwapData\n        );\n        \n        // Step 2: Split Company tokens into conditional tokens\n        _approveIfNeeded(params.companyToken, futarchyRouter, params.amountIn);\n        IFutarchyRouter(futarchyRouter).splitPosition(params.proposalAddress, params.companyToken, params.amountIn);\n        \n        // Step 3: Swap conditional Company tokens to conditional sDAI on Swapr\n        uint256 companyYesBalance = IERC20(params.companyYesToken).balanceOf(address(this));\n        uint256 companyNoBalance = IERC20(params.companyNoToken).balanceOf(address(this));\n        \n        // Swap YES tokens\n        _approveIfNeeded(params.companyYesToken, swaprRouter, companyYesBalance);\n        uint256 sdaiYesOut = _executeSwaprSwap(\n            params.companyYesToken,\n            params.sdaiYesToken,\n            companyYesBalance,\n            params.swaprYesSwapData\n        );\n        \n        // Swap NO tokens\n        _approveIfNeeded(params.companyNoToken, swaprRouter, companyNoBalance);\n        uint256 sdaiNoOut = _executeSwaprSwap(\n            params.companyNoToken,\n            params.sdaiNoToken,\n            companyNoBalance,\n            params.swaprNoSwapData\n        );\n        \n        // Step 4: Merge conditional sDAI tokens\n        uint256 mergeAmount = sdaiYesOut < sdaiNoOut ? sdaiYesOut : sdaiNoOut;\n        _approveIfNeeded(params.sdaiYesToken, futarchyRouter, mergeAmount);\n        _approveIfNeeded(params.sdaiNoToken, futarchyRouter, mergeAmount);\n        IFutarchyRouter(futarchyRouter).mergePositions(params.proposalAddress, params.sdaiToken, mergeAmount);\n        \n        // Step 5: Handle imbalances\n        if (sdaiYesOut > mergeAmount) {\n            // Excess YES tokens - keep as sDAI\n            uint256 excessYes = sdaiYesOut - mergeAmount;\n            // Already in sDAI form, just transfer\n        } else if (sdaiNoOut > mergeAmount) {\n            // Excess NO tokens - keep as sDAI\n            uint256 excessNo = sdaiNoOut - mergeAmount;\n            // Already in sDAI form, just transfer\n        }\n        \n        // Calculate final balance and profit\n        uint256 finalSdaiBalance = IERC20(params.sdaiToken).balanceOf(address(this));\n        uint256 totalSdaiOut = finalSdaiBalance + sdaiOut;\n        \n        // Verify minimum profit\n        require(totalSdaiOut > params.amountIn + params.minProfit, \"Insufficient profit\");\n        profit = totalSdaiOut - params.amountIn;\n        \n        // Transfer all sDAI to owner\n        IERC20(params.sdaiToken).transfer(owner, finalSdaiBalance);\n        \n        emit ConditionalArbitrageExecuted(params.amountIn, params.amountIn, totalSdaiOut, profit);\n    }\n    \n    function _executeSwaprSwap(\n        address tokenIn,\n        address tokenOut,\n        uint256 amountIn,\n        bytes calldata swapData\n    ) private returns (uint256) {\n        // Decode swap parameters from swapData\n        (uint24 fee, uint256 amountOutMinimum) = abi.decode(swapData, (uint24, uint256));\n        \n        ISwaprRouter.ExactInputSingleParams memory params = ISwaprRouter.ExactInputSingleParams({\n            tokenIn: tokenIn,\n            tokenOut: tokenOut,\n            fee: fee,\n            recipient: address(this),\n            deadline: block.timestamp + DEADLINE_BUFFER,\n            amountIn: amountIn,\n            amountOutMinimum: amountOutMinimum,\n            sqrtPriceLimitX96: 0\n        });\n        \n        return ISwaprRouter(swaprRouter).exactInputSingle(params);\n    }\n    \n    function _executeBalancerSwap(\n        address tokenIn,\n        address tokenOut,\n        uint256 amountIn,\n        bytes calldata swapData\n    ) private returns (uint256) {\n        // Decode swap parameters\n        (bytes32 poolId, uint256 minAmountOut) = abi.decode(swapData, (bytes32, uint256));\n        \n        IBalancerVault.SingleSwap memory singleSwap = IBalancerVault.SingleSwap({\n            poolId: poolId,\n            kind: 0, // GIVEN_IN\n            assetIn: tokenIn,\n            assetOut: tokenOut,\n            amount: amountIn,\n            userData: \"\"\n        });\n        \n        IBalancerVault.FundManagement memory funds = IBalancerVault.FundManagement({\n            sender: address(this),\n            fromInternalBalance: false,\n            recipient: payable(address(this)),\n            toInternalBalance: false\n        });\n        \n        return IBalancerVault(balancerVault).swap(\n            singleSwap,\n            funds,\n            minAmountOut,\n            block.timestamp + DEADLINE_BUFFER\n        );\n    }\n    \n    function _approveIfNeeded(address token, address spender, uint256 amount) private {\n        uint256 currentAllowance = IERC20(token).allowance(address(this), spender);\n        if (currentAllowance < amount) {\n            // Reset approval to 0 first for tokens that require it\n            if (currentAllowance > 0) {\n                IERC20(token).approve(spender, 0);\n            }\n            IERC20(token).approve(spender, MAX_UINT);\n        }\n    }\n    \n    // View functions for simulation\n    function simulateBuyConditional(\n        ConditionalArbitrageParams calldata params\n    ) external view returns (uint256 expectedProfit, bool profitable) {\n        // This would be called via eth_call to simulate the arbitrage\n        // Returns expected profit without executing\n        // Implementation would mirror the execution logic but with calculations only\n        return (0, false); // Placeholder\n    }\n    \n    function simulateSellConditional(\n        ConditionalArbitrageParams calldata params\n    ) external view returns (uint256 expectedProfit, bool profitable) {\n        // This would be called via eth_call to simulate the arbitrage\n        // Returns expected profit without executing\n        return (0, false); // Placeholder\n    }\n    \n    // Emergency functions\n    function rescueToken(address token, uint256 amount) external onlyOwner {\n        IERC20(token).transfer(owner, amount);\n    }\n    \n    function rescueETH() external onlyOwner {\n        payable(owner).transfer(address(this).balance);\n    }\n    \n    // Receive ETH\n    receive() external payable {}\n}",
+  "source_code": "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.19;\n\ninterface IERC20 {\n    function transfer(address to, uint256 amount) external returns (bool);\n    function transferFrom(address from, address to, uint256 amount) external returns (bool);\n    function balanceOf(address account) external view returns (uint256);\n    function approve(address spender, uint256 amount) external returns (bool);\n    function allowance(address owner, address spender) external view returns (uint256);\n}\n\ncontract FutarchyArbitrageExecutor {\n    address public immutable owner;\n    \n    uint256 private constant MAX_UINT = type(uint256).max;\n    \n    struct Call {\n        address target;\n        bytes callData;\n    }\n    \n    struct Result {\n        bool success;\n        bytes returnData;\n    }\n    \n    event MulticallExecuted(\n        uint256 callsCount,\n        uint256 successCount\n    );\n    \n    event ArbitrageProfit(\n        address indexed token,\n        uint256 profit\n    );\n    \n    modifier onlyOwner() {\n        require(msg.sender == owner, \"Only owner can execute\");\n        _;\n    }\n    \n    constructor(address _owner) {\n        require(_owner != address(0), \"Invalid owner\");\n        owner = _owner;\n    }\n    \n    /**\n     * @notice Execute multiple calls in a single transaction\n     * @param calls Array of Call structs containing target addresses and calldata\n     * @return returnData Array of Result structs containing success status and return data\n     */\n    function multicall(Call[] calldata calls) external onlyOwner returns (Result[] memory returnData) {\n        uint256 length = calls.length;\n        returnData = new Result[](length);\n        uint256 successCount = 0;\n        \n        for (uint256 i = 0; i < length; i++) {\n            (bool success, bytes memory ret) = calls[i].target.call(calls[i].callData);\n            returnData[i] = Result(success, ret);\n            if (success) successCount++;\n        }\n        \n        emit MulticallExecuted(length, successCount);\n    }\n    \n    /**\n     * @notice Execute multiple calls, reverting if any fail\n     * @param calls Array of Call structs containing target addresses and calldata\n     * @return returnData Array of return data from each call\n     */\n    function multicallStrict(Call[] calldata calls) external onlyOwner returns (bytes[] memory returnData) {\n        uint256 length = calls.length;\n        returnData = new bytes[](length);\n        \n        for (uint256 i = 0; i < length; i++) {\n            (bool success, bytes memory ret) = calls[i].target.call(calls[i].callData);\n            require(success, string(abi.encodePacked(\"Call \", _toString(i), \" failed\")));\n            returnData[i] = ret;\n        }\n        \n        emit MulticallExecuted(length, length);\n    }\n    \n    /**\n     * @notice Execute arbitrage operations and calculate profit\n     * @param calls Array of Call structs for the arbitrage operations\n     * @param profitToken The token to measure profit in\n     * @param minProfit Minimum profit required (transaction reverts if not met)\n     */\n    function executeArbitrage(\n        Call[] calldata calls,\n        address profitToken,\n        uint256 minProfit\n    ) external onlyOwner returns (uint256 profit) {\n        // Record initial balance\n        uint256 initialBalance = IERC20(profitToken).balanceOf(address(this));\n        \n        // Execute all calls\n        uint256 length = calls.length;\n        for (uint256 i = 0; i < length; i++) {\n            (bool success, bytes memory ret) = calls[i].target.call(calls[i].callData);\n            require(success, string(abi.encodePacked(\"Arbitrage call \", _toString(i), \" failed: \", _getRevertMsg(ret))));\n        }\n        \n        // Calculate profit\n        uint256 finalBalance = IERC20(profitToken).balanceOf(address(this));\n        profit = finalBalance > initialBalance ? finalBalance - initialBalance : 0;\n        \n        require(profit >= minProfit, \"Insufficient profit\");\n        \n        // Transfer profit to owner\n        if (profit > 0) {\n            IERC20(profitToken).transfer(owner, profit);\n            emit ArbitrageProfit(profitToken, profit);\n        }\n        \n        // Transfer any remaining balance\n        uint256 remainingBalance = IERC20(profitToken).balanceOf(address(this));\n        if (remainingBalance > 0) {\n            IERC20(profitToken).transfer(owner, remainingBalance);\n        }\n    }\n    \n    /**\n     * @notice Approve tokens for multiple spenders\n     * @param tokens Array of token addresses\n     * @param spenders Array of spender addresses\n     * @param amounts Array of amounts to approve (use MAX_UINT for unlimited)\n     */\n    function batchApprove(\n        address[] calldata tokens,\n        address[] calldata spenders,\n        uint256[] calldata amounts\n    ) external onlyOwner {\n        require(tokens.length == spenders.length && tokens.length == amounts.length, \"Array length mismatch\");\n        \n        for (uint256 i = 0; i < tokens.length; i++) {\n            _approveIfNeeded(tokens[i], spenders[i], amounts[i]);\n        }\n    }\n    \n    /**\n     * @notice Transfer tokens from owner to contract\n     * @param token Token address\n     * @param amount Amount to transfer\n     */\n    function pullToken(address token, uint256 amount) external onlyOwner {\n        IERC20(token).transferFrom(owner, address(this), amount);\n    }\n    \n    /**\n     * @notice Transfer tokens from contract to owner\n     * @param token Token address\n     * @param amount Amount to transfer (use MAX_UINT for entire balance)\n     */\n    function pushToken(address token, uint256 amount) external onlyOwner {\n        if (amount == MAX_UINT) {\n            amount = IERC20(token).balanceOf(address(this));\n        }\n        IERC20(token).transfer(owner, amount);\n    }\n    \n    /**\n     * @notice Get token balance of this contract\n     * @param token Token address\n     * @return balance Token balance\n     */\n    function getBalance(address token) external view returns (uint256) {\n        return IERC20(token).balanceOf(address(this));\n    }\n    \n    /**\n     * @notice Simulate multicall execution\n     * @param calls Array of Call structs\n     * @return results Array of Result structs with success status and return data\n     */\n    function simulateMulticall(Call[] calldata calls) external returns (Result[] memory results) {\n        uint256 length = calls.length;\n        results = new Result[](length);\n        \n        for (uint256 i = 0; i < length; i++) {\n            try this.simulateCall(calls[i].target, calls[i].callData) returns (bytes memory ret) {\n                results[i] = Result(true, ret);\n            } catch (bytes memory reason) {\n                results[i] = Result(false, reason);\n            }\n        }\n    }\n    \n    /**\n     * @notice Helper function for simulation\n     */\n    function simulateCall(address target, bytes calldata data) external returns (bytes memory) {\n        (bool success, bytes memory ret) = target.call(data);\n        if (!success) {\n            assembly {\n                revert(add(ret, 32), mload(ret))\n            }\n        }\n        return ret;\n    }\n    \n    // Internal functions\n    function _approveIfNeeded(address token, address spender, uint256 amount) private {\n        uint256 currentAllowance = IERC20(token).allowance(address(this), spender);\n        if (currentAllowance < amount) {\n            // Reset approval to 0 first for tokens that require it\n            if (currentAllowance > 0) {\n                IERC20(token).approve(spender, 0);\n            }\n            IERC20(token).approve(spender, amount == MAX_UINT ? MAX_UINT : amount);\n        }\n    }\n    \n    function _getRevertMsg(bytes memory returnData) private pure returns (string memory) {\n        if (returnData.length < 68) return \"Transaction reverted silently\";\n        \n        assembly {\n            returnData := add(returnData, 0x04)\n        }\n        return abi.decode(returnData, (string));\n    }\n    \n    function _toString(uint256 value) private pure returns (string memory) {\n        if (value == 0) {\n            return \"0\";\n        }\n        uint256 temp = value;\n        uint256 digits;\n        while (temp != 0) {\n            digits++;\n            temp /= 10;\n        }\n        bytes memory buffer = new bytes(digits);\n        while (value != 0) {\n            digits -= 1;\n            buffer[digits] = bytes1(uint8(48 + uint256(value % 10)));\n            value /= 10;\n        }\n        return string(buffer);\n    }\n    \n    // Emergency functions\n    function rescueToken(address token, uint256 amount) external onlyOwner {\n        if (amount == MAX_UINT) {\n            amount = IERC20(token).balanceOf(address(this));\n        }\n        IERC20(token).transfer(owner, amount);\n    }\n    \n    function rescueETH() external onlyOwner {\n        payable(owner).transfer(address(this).balance);\n    }\n    \n    // Receive ETH\n    receive() external payable {}\n}",
   "constructor_args": {
-    "owner": "0x91c612a37b8365C2db937388d7b424fe03D62850",
-    "futarchy_router": "0x7495a583ba85875d59407781b4958ED6e0E1228f",
-    "swapr_router": "0xfFB643E73f280B97809A8b41f7232AB401a04ee1",
-    "balancer_vault": "0xBA12222222228d8Ba445958a75a0704d566BF2C8"
+    "owner": "0x91c612a37b8365C2db937388d7b424fe03D62850"
   }
 }
