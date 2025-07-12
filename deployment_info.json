@@ -1,0 +1,497 @@
+{
+  "address": "0x0A33cebCF1519f383De5b5d51AaF1e7d7D772E49",
+  "abi": [
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_owner",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_futarchyRouter",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_swaprRouter",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_balancerVault",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "constructor"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "tokenIn",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "tokenOut",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amountIn",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amountOut",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "profit",
+          "type": "uint256"
+        }
+      ],
+      "name": "ArbitrageExecuted",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amountIn",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "companyTokensOut",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "sdaiOut",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "profit",
+          "type": "uint256"
+        }
+      ],
+      "name": "ConditionalArbitrageExecuted",
+      "type": "event"
+    },
+    {
+      "inputs": [],
+      "name": "balancerVault",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "components": [
+            {
+              "internalType": "address",
+              "name": "sdaiToken",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "companyToken",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "sdaiYesToken",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "sdaiNoToken",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "companyYesToken",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "companyNoToken",
+              "type": "address"
+            },
+            {
+              "internalType": "uint256",
+              "name": "amountIn",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "minProfit",
+              "type": "uint256"
+            },
+            {
+              "internalType": "bytes",
+              "name": "balancerSwapData",
+              "type": "bytes"
+            },
+            {
+              "internalType": "bytes",
+              "name": "swaprYesSwapData",
+              "type": "bytes"
+            },
+            {
+              "internalType": "bytes",
+              "name": "swaprNoSwapData",
+              "type": "bytes"
+            }
+          ],
+          "internalType": "struct FutarchyArbitrageExecutor.ConditionalArbitrageParams",
+          "name": "params",
+          "type": "tuple"
+        }
+      ],
+      "name": "executeBuyConditionalArbitrage",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "profit",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "components": [
+            {
+              "internalType": "address",
+              "name": "sdaiToken",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "companyToken",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "sdaiYesToken",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "sdaiNoToken",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "companyYesToken",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "companyNoToken",
+              "type": "address"
+            },
+            {
+              "internalType": "uint256",
+              "name": "amountIn",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "minProfit",
+              "type": "uint256"
+            },
+            {
+              "internalType": "bytes",
+              "name": "balancerSwapData",
+              "type": "bytes"
+            },
+            {
+              "internalType": "bytes",
+              "name": "swaprYesSwapData",
+              "type": "bytes"
+            },
+            {
+              "internalType": "bytes",
+              "name": "swaprNoSwapData",
+              "type": "bytes"
+            }
+          ],
+          "internalType": "struct FutarchyArbitrageExecutor.ConditionalArbitrageParams",
+          "name": "params",
+          "type": "tuple"
+        }
+      ],
+      "name": "executeSellConditionalArbitrage",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "profit",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "futarchyRouter",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "owner",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "rescueETH",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "token",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "rescueToken",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "components": [
+            {
+              "internalType": "address",
+              "name": "sdaiToken",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "companyToken",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "sdaiYesToken",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "sdaiNoToken",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "companyYesToken",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "companyNoToken",
+              "type": "address"
+            },
+            {
+              "internalType": "uint256",
+              "name": "amountIn",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "minProfit",
+              "type": "uint256"
+            },
+            {
+              "internalType": "bytes",
+              "name": "balancerSwapData",
+              "type": "bytes"
+            },
+            {
+              "internalType": "bytes",
+              "name": "swaprYesSwapData",
+              "type": "bytes"
+            },
+            {
+              "internalType": "bytes",
+              "name": "swaprNoSwapData",
+              "type": "bytes"
+            }
+          ],
+          "internalType": "struct FutarchyArbitrageExecutor.ConditionalArbitrageParams",
+          "name": "params",
+          "type": "tuple"
+        }
+      ],
+      "name": "simulateBuyConditional",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "expectedProfit",
+          "type": "uint256"
+        },
+        {
+          "internalType": "bool",
+          "name": "profitable",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "components": [
+            {
+              "internalType": "address",
+              "name": "sdaiToken",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "companyToken",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "sdaiYesToken",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "sdaiNoToken",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "companyYesToken",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "companyNoToken",
+              "type": "address"
+            },
+            {
+              "internalType": "uint256",
+              "name": "amountIn",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "minProfit",
+              "type": "uint256"
+            },
+            {
+              "internalType": "bytes",
+              "name": "balancerSwapData",
+              "type": "bytes"
+            },
+            {
+              "internalType": "bytes",
+              "name": "swaprYesSwapData",
+              "type": "bytes"
+            },
+            {
+              "internalType": "bytes",
+              "name": "swaprNoSwapData",
+              "type": "bytes"
+            }
+          ],
+          "internalType": "struct FutarchyArbitrageExecutor.ConditionalArbitrageParams",
+          "name": "params",
+          "type": "tuple"
+        }
+      ],
+      "name": "simulateSellConditional",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "expectedProfit",
+          "type": "uint256"
+        },
+        {
+          "internalType": "bool",
+          "name": "profitable",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "swaprRouter",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "stateMutability": "payable",
+      "type": "receive"
+    }
+  ],
+  "tx_hash": "0xc0eb627da10a1a00c8002aec14244505743240852066da20c9db68047768d88d",
+  "block_number": 41041729,
+  "deployer": "0xaA3C6959d7990CF2a50d580b1F1c2a26995573c9"
+}
