@@ -9,95 +9,28 @@ interface IERC20 {
     function allowance(address owner, address spender) external view returns (uint256);
 }
 
-interface IFutarchyRouter {
-    function splitPosition(address collateralToken, uint256 amount) external;
-    function mergePositions(address collateralToken, uint256 amount) external;
-}
-
-interface ISwaprRouter {
-    struct ExactInputSingleParams {
-        address tokenIn;
-        address tokenOut;
-        uint24 fee;
-        address recipient;
-        uint256 deadline;
-        uint256 amountIn;
-        uint256 amountOutMinimum;
-        uint160 sqrtPriceLimitX96;
-    }
-    
-    function exactInputSingle(ExactInputSingleParams calldata params) external returns (uint256 amountOut);
-}
-
-interface IBalancerVault {
-    struct SingleSwap {
-        bytes32 poolId;
-        uint8 kind;
-        address assetIn;
-        address assetOut;
-        uint256 amount;
-        bytes userData;
-    }
-    
-    struct FundManagement {
-        address sender;
-        bool fromInternalBalance;
-        address payable recipient;
-        bool toInternalBalance;
-    }
-    
-    function swap(
-        SingleSwap memory singleSwap,
-        FundManagement memory funds,
-        uint256 limit,
-        uint256 deadline
-    ) external returns (uint256);
-}
-
 contract FutarchyArbitrageExecutor {
     address public immutable owner;
-    address public immutable futarchyRouter;
-    address public immutable swaprRouter;
-    address public immutable balancerVault;
     
     uint256 private constant MAX_UINT = type(uint256).max;
-    uint256 private constant DEADLINE_BUFFER = 300; // 5 minutes
     
-    struct ArbitragePath {
-        address tokenIn;
-        address tokenOut;
-        address[] intermediateTokens;
-        bytes[] swapData;
-        uint256 amountIn;
-        uint256 minAmountOut;
+    struct Call {
+        address target;
+        bytes callData;
     }
     
-    struct ConditionalArbitrageParams {
-        address sdaiToken;
-        address companyToken;
-        address sdaiYesToken;
-        address sdaiNoToken;
-        address companyYesToken;
-        address companyNoToken;
-        uint256 amountIn;
-        uint256 minProfit;
-        bytes balancerSwapData;
-        bytes swaprYesSwapData;
-        bytes swaprNoSwapData;
+    struct Result {
+        bool success;
+        bytes returnData;
     }
     
-    event ArbitrageExecuted(
-        address indexed tokenIn,
-        address indexed tokenOut,
-        uint256 amountIn,
-        uint256 amountOut,
-        uint256 profit
+    event MulticallExecuted(
+        uint256 callsCount,
+        uint256 successCount
     );
     
-    event ConditionalArbitrageExecuted(
-        uint256 amountIn,
-        uint256 companyTokensOut,
-        uint256 sdaiOut,
+    event ArbitrageProfit(
+        address indexed token,
         uint256 profit
     );
     
@@ -106,237 +39,168 @@ contract FutarchyArbitrageExecutor {
         _;
     }
     
-    constructor(
-        address _owner,
-        address _futarchyRouter,
-        address _swaprRouter,
-        address _balancerVault
-    ) {
+    constructor(address _owner) {
         require(_owner != address(0), "Invalid owner");
-        require(_futarchyRouter != address(0), "Invalid futarchy router");
-        require(_swaprRouter != address(0), "Invalid swapr router");
-        require(_balancerVault != address(0), "Invalid balancer vault");
-        
         owner = _owner;
-        futarchyRouter = _futarchyRouter;
-        swaprRouter = _swaprRouter;
-        balancerVault = _balancerVault;
     }
     
-    function executeBuyConditionalArbitrage(
-        ConditionalArbitrageParams calldata params
-    ) external onlyOwner returns (uint256 profit) {
-        // Pull sDAI from owner
-        IERC20(params.sdaiToken).transferFrom(owner, address(this), params.amountIn);
+    /**
+     * @notice Execute multiple calls in a single transaction
+     * @param calls Array of Call structs containing target addresses and calldata
+     * @return returnData Array of Result structs containing success status and return data
+     */
+    function multicall(Call[] calldata calls) external onlyOwner returns (Result[] memory returnData) {
+        uint256 length = calls.length;
+        returnData = new Result[](length);
+        uint256 successCount = 0;
         
-        uint256 initialBalance = IERC20(params.sdaiToken).balanceOf(address(this));
-        
-        // Step 1: Split sDAI into conditional tokens
-        _approveIfNeeded(params.sdaiToken, futarchyRouter, params.amountIn);
-        IFutarchyRouter(futarchyRouter).splitPosition(params.sdaiToken, params.amountIn);
-        
-        // Step 2: Swap conditional sDAI to conditional Company tokens on Swapr
-        uint256 yesBalance = IERC20(params.sdaiYesToken).balanceOf(address(this));
-        uint256 noBalance = IERC20(params.sdaiNoToken).balanceOf(address(this));
-        
-        // Swap YES tokens
-        _approveIfNeeded(params.sdaiYesToken, swaprRouter, yesBalance);
-        uint256 companyYesOut = _executeSwaprSwap(
-            params.sdaiYesToken,
-            params.companyYesToken,
-            yesBalance,
-            params.swaprYesSwapData
-        );
-        
-        // Swap NO tokens
-        _approveIfNeeded(params.sdaiNoToken, swaprRouter, noBalance);
-        uint256 companyNoOut = _executeSwaprSwap(
-            params.sdaiNoToken,
-            params.companyNoToken,
-            noBalance,
-            params.swaprNoSwapData
-        );
-        
-        // Step 3: Merge conditional Company tokens
-        uint256 mergeAmount = companyYesOut < companyNoOut ? companyYesOut : companyNoOut;
-        _approveIfNeeded(params.companyYesToken, futarchyRouter, mergeAmount);
-        _approveIfNeeded(params.companyNoToken, futarchyRouter, mergeAmount);
-        IFutarchyRouter(futarchyRouter).mergePositions(params.companyToken, mergeAmount);
-        
-        // Step 4: Handle imbalances (liquidate excess conditional tokens)
-        if (companyYesOut > mergeAmount) {
-            // Excess YES tokens - swap back to sDAI
-            uint256 excessYes = companyYesOut - mergeAmount;
-            _approveIfNeeded(params.companyYesToken, swaprRouter, excessYes);
-            _executeSwaprSwap(
-                params.companyYesToken,
-                params.sdaiToken,
-                excessYes,
-                params.swaprYesSwapData
-            );
-        } else if (companyNoOut > mergeAmount) {
-            // Excess NO tokens - swap back to sDAI
-            uint256 excessNo = companyNoOut - mergeAmount;
-            _approveIfNeeded(params.companyNoToken, swaprRouter, excessNo);
-            _executeSwaprSwap(
-                params.companyNoToken,
-                params.sdaiToken,
-                excessNo,
-                params.swaprNoSwapData
-            );
+        for (uint256 i = 0; i < length; i++) {
+            (bool success, bytes memory ret) = calls[i].target.call(calls[i].callData);
+            returnData[i] = Result(success, ret);
+            if (success) successCount++;
         }
         
-        // Step 5: Sell Company tokens on Balancer
-        uint256 companyBalance = IERC20(params.companyToken).balanceOf(address(this));
-        _approveIfNeeded(params.companyToken, balancerVault, companyBalance);
-        uint256 sdaiOut = _executeBalancerSwap(
-            params.companyToken,
-            params.sdaiToken,
-            companyBalance,
-            params.balancerSwapData
-        );
+        emit MulticallExecuted(length, successCount);
+    }
+    
+    /**
+     * @notice Execute multiple calls, reverting if any fail
+     * @param calls Array of Call structs containing target addresses and calldata
+     * @return returnData Array of return data from each call
+     */
+    function multicallStrict(Call[] calldata calls) external onlyOwner returns (bytes[] memory returnData) {
+        uint256 length = calls.length;
+        returnData = new bytes[](length);
         
-        // Calculate profit and verify minimum
-        uint256 finalBalance = IERC20(params.sdaiToken).balanceOf(address(this));
+        for (uint256 i = 0; i < length; i++) {
+            (bool success, bytes memory ret) = calls[i].target.call(calls[i].callData);
+            require(success, string(abi.encodePacked("Call ", _toString(i), " failed")));
+            returnData[i] = ret;
+        }
+        
+        emit MulticallExecuted(length, length);
+    }
+    
+    /**
+     * @notice Execute arbitrage operations and calculate profit
+     * @param calls Array of Call structs for the arbitrage operations
+     * @param profitToken The token to measure profit in
+     * @param minProfit Minimum profit required (transaction reverts if not met)
+     */
+    function executeArbitrage(
+        Call[] calldata calls,
+        address profitToken,
+        uint256 minProfit
+    ) external onlyOwner returns (uint256 profit) {
+        // Record initial balance
+        uint256 initialBalance = IERC20(profitToken).balanceOf(address(this));
+        
+        // Execute all calls
+        uint256 length = calls.length;
+        for (uint256 i = 0; i < length; i++) {
+            (bool success, bytes memory ret) = calls[i].target.call(calls[i].callData);
+            require(success, string(abi.encodePacked("Arbitrage call ", _toString(i), " failed: ", _getRevertMsg(ret))));
+        }
+        
+        // Calculate profit
+        uint256 finalBalance = IERC20(profitToken).balanceOf(address(this));
         profit = finalBalance > initialBalance ? finalBalance - initialBalance : 0;
-        require(profit >= params.minProfit, "Insufficient profit");
         
-        // Transfer all sDAI back to owner
-        IERC20(params.sdaiToken).transfer(owner, finalBalance);
+        require(profit >= minProfit, "Insufficient profit");
         
-        emit ConditionalArbitrageExecuted(params.amountIn, mergeAmount, sdaiOut, profit);
-    }
-    
-    function executeSellConditionalArbitrage(
-        ConditionalArbitrageParams calldata params
-    ) external onlyOwner returns (uint256 profit) {
-        // Pull Company tokens from owner
-        IERC20(params.companyToken).transferFrom(owner, address(this), params.amountIn);
-        
-        uint256 initialSdaiBalance = IERC20(params.sdaiToken).balanceOf(owner);
-        
-        // Step 1: Buy sDAI with Company tokens on Balancer
-        _approveIfNeeded(params.companyToken, balancerVault, params.amountIn);
-        uint256 sdaiOut = _executeBalancerSwap(
-            params.companyToken,
-            params.sdaiToken,
-            params.amountIn,
-            params.balancerSwapData
-        );
-        
-        // Step 2: Split Company tokens into conditional tokens
-        _approveIfNeeded(params.companyToken, futarchyRouter, params.amountIn);
-        IFutarchyRouter(futarchyRouter).splitPosition(params.companyToken, params.amountIn);
-        
-        // Step 3: Swap conditional Company tokens to conditional sDAI on Swapr
-        uint256 companyYesBalance = IERC20(params.companyYesToken).balanceOf(address(this));
-        uint256 companyNoBalance = IERC20(params.companyNoToken).balanceOf(address(this));
-        
-        // Swap YES tokens
-        _approveIfNeeded(params.companyYesToken, swaprRouter, companyYesBalance);
-        uint256 sdaiYesOut = _executeSwaprSwap(
-            params.companyYesToken,
-            params.sdaiYesToken,
-            companyYesBalance,
-            params.swaprYesSwapData
-        );
-        
-        // Swap NO tokens
-        _approveIfNeeded(params.companyNoToken, swaprRouter, companyNoBalance);
-        uint256 sdaiNoOut = _executeSwaprSwap(
-            params.companyNoToken,
-            params.sdaiNoToken,
-            companyNoBalance,
-            params.swaprNoSwapData
-        );
-        
-        // Step 4: Merge conditional sDAI tokens
-        uint256 mergeAmount = sdaiYesOut < sdaiNoOut ? sdaiYesOut : sdaiNoOut;
-        _approveIfNeeded(params.sdaiYesToken, futarchyRouter, mergeAmount);
-        _approveIfNeeded(params.sdaiNoToken, futarchyRouter, mergeAmount);
-        IFutarchyRouter(futarchyRouter).mergePositions(params.sdaiToken, mergeAmount);
-        
-        // Step 5: Handle imbalances
-        if (sdaiYesOut > mergeAmount) {
-            // Excess YES tokens - keep as sDAI
-            uint256 excessYes = sdaiYesOut - mergeAmount;
-            // Already in sDAI form, just transfer
-        } else if (sdaiNoOut > mergeAmount) {
-            // Excess NO tokens - keep as sDAI
-            uint256 excessNo = sdaiNoOut - mergeAmount;
-            // Already in sDAI form, just transfer
+        // Transfer profit to owner
+        if (profit > 0) {
+            IERC20(profitToken).transfer(owner, profit);
+            emit ArbitrageProfit(profitToken, profit);
         }
         
-        // Calculate final balance and profit
-        uint256 finalSdaiBalance = IERC20(params.sdaiToken).balanceOf(address(this));
-        uint256 totalSdaiOut = finalSdaiBalance + sdaiOut;
-        
-        // Verify minimum profit
-        require(totalSdaiOut > params.amountIn + params.minProfit, "Insufficient profit");
-        profit = totalSdaiOut - params.amountIn;
-        
-        // Transfer all sDAI to owner
-        IERC20(params.sdaiToken).transfer(owner, finalSdaiBalance);
-        
-        emit ConditionalArbitrageExecuted(params.amountIn, params.amountIn, totalSdaiOut, profit);
+        // Transfer any remaining balance
+        uint256 remainingBalance = IERC20(profitToken).balanceOf(address(this));
+        if (remainingBalance > 0) {
+            IERC20(profitToken).transfer(owner, remainingBalance);
+        }
     }
     
-    function _executeSwaprSwap(
-        address tokenIn,
-        address tokenOut,
-        uint256 amountIn,
-        bytes calldata swapData
-    ) private returns (uint256) {
-        // Decode swap parameters from swapData
-        (uint24 fee, uint256 amountOutMinimum) = abi.decode(swapData, (uint24, uint256));
+    /**
+     * @notice Approve tokens for multiple spenders
+     * @param tokens Array of token addresses
+     * @param spenders Array of spender addresses
+     * @param amounts Array of amounts to approve (use MAX_UINT for unlimited)
+     */
+    function batchApprove(
+        address[] calldata tokens,
+        address[] calldata spenders,
+        uint256[] calldata amounts
+    ) external onlyOwner {
+        require(tokens.length == spenders.length && tokens.length == amounts.length, "Array length mismatch");
         
-        ISwaprRouter.ExactInputSingleParams memory params = ISwaprRouter.ExactInputSingleParams({
-            tokenIn: tokenIn,
-            tokenOut: tokenOut,
-            fee: fee,
-            recipient: address(this),
-            deadline: block.timestamp + DEADLINE_BUFFER,
-            amountIn: amountIn,
-            amountOutMinimum: amountOutMinimum,
-            sqrtPriceLimitX96: 0
-        });
-        
-        return ISwaprRouter(swaprRouter).exactInputSingle(params);
+        for (uint256 i = 0; i < tokens.length; i++) {
+            _approveIfNeeded(tokens[i], spenders[i], amounts[i]);
+        }
     }
     
-    function _executeBalancerSwap(
-        address tokenIn,
-        address tokenOut,
-        uint256 amountIn,
-        bytes calldata swapData
-    ) private returns (uint256) {
-        // Decode swap parameters
-        (bytes32 poolId, uint256 minAmountOut) = abi.decode(swapData, (bytes32, uint256));
-        
-        IBalancerVault.SingleSwap memory singleSwap = IBalancerVault.SingleSwap({
-            poolId: poolId,
-            kind: 0, // GIVEN_IN
-            assetIn: tokenIn,
-            assetOut: tokenOut,
-            amount: amountIn,
-            userData: ""
-        });
-        
-        IBalancerVault.FundManagement memory funds = IBalancerVault.FundManagement({
-            sender: address(this),
-            fromInternalBalance: false,
-            recipient: payable(address(this)),
-            toInternalBalance: false
-        });
-        
-        return IBalancerVault(balancerVault).swap(
-            singleSwap,
-            funds,
-            minAmountOut,
-            block.timestamp + DEADLINE_BUFFER
-        );
+    /**
+     * @notice Transfer tokens from owner to contract
+     * @param token Token address
+     * @param amount Amount to transfer
+     */
+    function pullToken(address token, uint256 amount) external onlyOwner {
+        IERC20(token).transferFrom(owner, address(this), amount);
     }
     
+    /**
+     * @notice Transfer tokens from contract to owner
+     * @param token Token address
+     * @param amount Amount to transfer (use MAX_UINT for entire balance)
+     */
+    function pushToken(address token, uint256 amount) external onlyOwner {
+        if (amount == MAX_UINT) {
+            amount = IERC20(token).balanceOf(address(this));
+        }
+        IERC20(token).transfer(owner, amount);
+    }
+    
+    /**
+     * @notice Get token balance of this contract
+     * @param token Token address
+     * @return balance Token balance
+     */
+    function getBalance(address token) external view returns (uint256) {
+        return IERC20(token).balanceOf(address(this));
+    }
+    
+    /**
+     * @notice Simulate multicall execution
+     * @param calls Array of Call structs
+     * @return results Array of Result structs with success status and return data
+     */
+    function simulateMulticall(Call[] calldata calls) external returns (Result[] memory results) {
+        uint256 length = calls.length;
+        results = new Result[](length);
+        
+        for (uint256 i = 0; i < length; i++) {
+            try this.simulateCall(calls[i].target, calls[i].callData) returns (bytes memory ret) {
+                results[i] = Result(true, ret);
+            } catch (bytes memory reason) {
+                results[i] = Result(false, reason);
+            }
+        }
+    }
+    
+    /**
+     * @notice Helper function for simulation
+     */
+    function simulateCall(address target, bytes calldata data) external returns (bytes memory) {
+        (bool success, bytes memory ret) = target.call(data);
+        if (!success) {
+            assembly {
+                revert(add(ret, 32), mload(ret))
+            }
+        }
+        return ret;
+    }
+    
+    // Internal functions
     function _approveIfNeeded(address token, address spender, uint256 amount) private {
         uint256 currentAllowance = IERC20(token).allowance(address(this), spender);
         if (currentAllowance < amount) {
@@ -344,30 +208,43 @@ contract FutarchyArbitrageExecutor {
             if (currentAllowance > 0) {
                 IERC20(token).approve(spender, 0);
             }
-            IERC20(token).approve(spender, MAX_UINT);
+            IERC20(token).approve(spender, amount == MAX_UINT ? MAX_UINT : amount);
         }
     }
     
-    // View functions for simulation
-    function simulateBuyConditional(
-        ConditionalArbitrageParams calldata params
-    ) external view returns (uint256 expectedProfit, bool profitable) {
-        // This would be called via eth_call to simulate the arbitrage
-        // Returns expected profit without executing
-        // Implementation would mirror the execution logic but with calculations only
-        return (0, false); // Placeholder
+    function _getRevertMsg(bytes memory returnData) private pure returns (string memory) {
+        if (returnData.length < 68) return "Transaction reverted silently";
+        
+        assembly {
+            returnData := add(returnData, 0x04)
+        }
+        return abi.decode(returnData, (string));
     }
     
-    function simulateSellConditional(
-        ConditionalArbitrageParams calldata params
-    ) external view returns (uint256 expectedProfit, bool profitable) {
-        // This would be called via eth_call to simulate the arbitrage
-        // Returns expected profit without executing
-        return (0, false); // Placeholder
+    function _toString(uint256 value) private pure returns (string memory) {
+        if (value == 0) {
+            return "0";
+        }
+        uint256 temp = value;
+        uint256 digits;
+        while (temp != 0) {
+            digits++;
+            temp /= 10;
+        }
+        bytes memory buffer = new bytes(digits);
+        while (value != 0) {
+            digits -= 1;
+            buffer[digits] = bytes1(uint8(48 + uint256(value % 10)));
+            value /= 10;
+        }
+        return string(buffer);
     }
     
     // Emergency functions
     function rescueToken(address token, uint256 amount) external onlyOwner {
+        if (amount == MAX_UINT) {
+            amount = IERC20(token).balanceOf(address(this));
+        }
         IERC20(token).transfer(owner, amount);
     }
     

@@ -18,8 +18,7 @@ def compile_contract():
         ['contracts/FutarchyArbitrageExecutor.sol'],
         output_values=['abi', 'bin', 'metadata'],
         solc_version='0.8.19',
-        optimize=True,
-        optimize_runs=200
+        optimize=False
     )
     
     contract_key = 'contracts/FutarchyArbitrageExecutor.sol:FutarchyArbitrageExecutor'
@@ -31,7 +30,7 @@ def compile_contract():
     
     return contract['abi'], contract['bin'], source_code, contract.get('metadata', '')
 
-def deploy_contract(w3, account, private_key, futarchy_router, swapr_router, balancer_vault):
+def deploy_contract(w3, account, private_key):
     """Deploy the FutarchyArbitrageExecutor contract"""
     
     # Compile contract
@@ -42,10 +41,7 @@ def deploy_contract(w3, account, private_key, futarchy_router, swapr_router, bal
     
     # Build constructor transaction
     constructor_tx = Contract.constructor(
-        account,  # owner
-        futarchy_router,
-        swapr_router,
-        balancer_vault
+        account  # owner
     ).build_transaction({
         'from': account,
         'nonce': w3.eth.get_transaction_count(account),
@@ -75,10 +71,7 @@ def deploy_contract(w3, account, private_key, futarchy_router, swapr_router, bal
             'deployer': account,
             'source_code': source_code,
             'constructor_args': {
-                'owner': account,
-                'futarchy_router': futarchy_router,
-                'swapr_router': swapr_router,
-                'balancer_vault': balancer_vault
+                'owner': account
             }
         }
         
@@ -96,25 +89,22 @@ def verify_contract_on_gnosisscan(contract_address, source_code, constructor_arg
     # Gnosisscan API endpoint
     api_url = "https://api.gnosisscan.io/api"
     
-    # Get API key from environment or use a placeholder
-    api_key = os.getenv('GNOSISSCAN_API_KEY', 'YourGnosisscanAPIKey')
+    # Get API key from environment
+    api_key = os.getenv('GNOSISSCAN_API_KEY')
     
-    if api_key == 'YourGnosisscanAPIKey':
-        print("Warning: GNOSISSCAN_API_KEY not set. Please set it to verify the contract.")
+    if not api_key:
+        print("Warning: GNOSISSCAN_API_KEY not set.")
+        print("To enable automatic verification, add GNOSISSCAN_API_KEY to your .env file")
         print("You can get an API key from: https://gnosisscan.io/myapikey")
+        print("\nTo verify manually later, run: python verify_contract.py")
         return False
     
     # Encode constructor arguments
-    # Constructor takes 4 addresses: owner, futarchyRouter, swaprRouter, balancerVault
+    # Constructor takes 1 address: owner
     from eth_abi import encode
     constructor_args_encoded = encode(
-        ['address', 'address', 'address', 'address'],
-        [
-            constructor_args['owner'],
-            constructor_args['futarchy_router'],
-            constructor_args['swapr_router'],
-            constructor_args['balancer_vault']
-        ]
+        ['address'],
+        [constructor_args['owner']]
     ).hex()
     
     # Prepare verification parameters
@@ -207,10 +197,7 @@ def main():
     contract_address, abi, source_code = deploy_contract(
         w3,
         account.address,
-        private_key,
-        futarchy_router,
-        swapr_router,
-        balancer_vault
+        private_key
     )
     
     print("\nDeployment complete!")
@@ -221,19 +208,52 @@ def main():
     contract = w3.eth.contract(address=contract_address, abi=abi)
     print(f"\nVerifying deployment...")
     print(f"Owner: {contract.functions.owner().call()}")
-    print(f"Futarchy Router: {contract.functions.futarchyRouter().call()}")
-    print(f"Swapr Router: {contract.functions.swaprRouter().call()}")
-    print(f"Balancer Vault: {contract.functions.balancerVault().call()}")
     
     # Verify on Gnosisscan
     constructor_args = {
-        'owner': account.address,
-        'futarchy_router': futarchy_router,
-        'swapr_router': swapr_router,
-        'balancer_vault': balancer_vault
+        'owner': account.address
     }
     
     verify_contract_on_gnosisscan(contract_address, source_code, constructor_args)
+    
+    # Add the deployed contract address to the environment file
+    env_file = None
+    for env in ['.env', '.env.0x9590dAF4d5cd4009c3F9767C5E7668175cFd37CF', '.env.0xec50a351C0A4A122DC614058C0481Bb9487Abdaa', '.env.0xDA36a35CA4Fe6214C37a452159C0C9EAd45D5919', '.env.0x757fAF022abf920E110d6C4DbC2477A99788F447']:
+        if os.path.exists(env) and os.getenv('FUTARCHY_PROPOSAL_ADDRESS') in env:
+            env_file = env
+            break
+    
+    if not env_file:
+        # Try to determine from loaded environment
+        proposal_address = os.getenv('FUTARCHY_PROPOSAL_ADDRESS')
+        if proposal_address:
+            env_file = f'.env.{proposal_address}'
+    
+    if env_file and os.path.exists(env_file):
+        print(f"\nUpdating {env_file} with contract address...")
+        
+        # Read the current file
+        with open(env_file, 'r') as f:
+            lines = f.readlines()
+        
+        # Check if ARBITRAGE_EXECUTOR_ADDRESS already exists
+        found = False
+        for i, line in enumerate(lines):
+            if line.startswith('export ARBITRAGE_EXECUTOR_ADDRESS='):
+                lines[i] = f'export ARBITRAGE_EXECUTOR_ADDRESS={contract_address}\n'
+                found = True
+                break
+        
+        # If not found, add it at the end
+        if not found:
+            lines.append(f'\n# Deployed Arbitrage Executor Contract\n')
+            lines.append(f'export ARBITRAGE_EXECUTOR_ADDRESS={contract_address}\n')
+        
+        # Write back
+        with open(env_file, 'w') as f:
+            f.writelines(lines)
+        
+        print(f"✅ Added ARBITRAGE_EXECUTOR_ADDRESS to {env_file}")
 
 if __name__ == "__main__":
     main()
