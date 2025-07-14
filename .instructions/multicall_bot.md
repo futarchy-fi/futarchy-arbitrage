@@ -2,97 +2,94 @@
 
 ## Overview
 
-This document describes the multicall-based arbitrage bot implementation for Gnosis Chain futarchy markets. The bot uses a flexible multicall pattern instead of hardcoded arbitrage logic, allowing for dynamic execution of complex arbitrage strategies.
+This document describes the multicall-based arbitrage bot implementation for Gnosis Chain futarchy markets. The bot uses a simplified multicall pattern with profit verification, designed for maximum safety and efficiency.
 
-## Architecture Changes
+## Architecture - V2 Design
 
-### From Hardcoded to Multicall Pattern
+### Simplified Multicall Pattern
 
-The original FutarchyArbitrageExecutor contract had specific functions for each arbitrage operation. We redesigned it to use a generic multicall pattern that:
+The FutarchyArbitrageExecutorV2 contract provides a clean, owner-only multicall interface:
 
 1. Accepts an array of arbitrary contract calls as `Call` structs
 2. Executes them atomically in sequence
-3. Tracks success/failure of each call
-4. Calculates profit after all operations
+3. Automatically calculates and verifies profit
+4. Transfers all profits to the owner
 
 ### Key Components
 
-#### 1. FutarchyArbitrageExecutor Contract (`contracts/FutarchyArbitrageExecutor.sol`)
+#### 1. FutarchyArbitrageExecutorV2 Contract (`contracts/FutarchyArbitrageExecutorV2.sol`)
 
 **Core Functions:**
-- `multicall(Call[] calldata calls)` - Execute multiple calls, continue on failure
-- `multicallStrict(Call[] calldata calls)` - Execute multiple calls, revert on any failure
-- `executeArbitrage(calls, profitToken, minProfit)` - Execute arbitrage with profit tracking
-- `pullToken/pushToken` - Move tokens between owner and contract
-- `batchApprove` - Approve multiple tokens to multiple spenders
+- `multicall(Call[] calldata calls)` - Execute multiple calls with failure handling
+- `executeArbitrage(calls, profitToken, minProfit)` - Execute arbitrage with profit verification
+- `withdrawToken(token, amount)` - Withdraw tokens from contract
+- `approveToken(token, spender, amount)` - Approve token spending
 
-**Deployment:**
-- Address: `0xf276e5d62978F0E79089a4B7867A2AD97E3c9be5`
+**Current Deployment:**
+- Address: `0x474024acDA78D7827a94817d3b6C9794F3716AF2`
 - Owner: `0x91c612a37b8365C2db937388d7b424fe03D62850`
 - Network: Gnosis Chain
+- Verified: ✅ [View on Gnosisscan](https://gnosisscan.io/address/0x474024acDA78D7827a94817d3b6C9794F3716AF2#code)
 
-#### 2. Multicall Builder (`multicall_builder.py`)
+#### 2. Multicall V2 Builder (`src/commands/multicall_v2.py`)
 
-Helper class to encode complex arbitrage operations:
+Simplified builder class for V2 contract:
 
 ```python
-class MulticallBuilder:
-    def add_futarchy_split(self, router_address, proposal, collateral_token, amount)
-    def add_swapr_exact_input(self, router_address, params)
-    def add_balancer_swap(self, vault_address, pool_id, token_in, token_out, amount_in, min_amount_out)
+class MulticallV2Builder:
+    def add_call(self, target: str, function_name: str, args: List[Any])
+    def add_approve(self, token: str, spender: str, amount: int)
+    def add_futarchy_split(self, router: str, proposal: str, collateral: str, amount: int)
+    def add_swapr_swap(self, router: str, token_in: str, token_out: str, amount_in: int, min_out: int)
     def build() -> List[Tuple[str, bytes]]
 ```
 
-#### 3. Test Scripts
+#### 3. Deployment & Testing Scripts (in `scripts/`)
 
-- `test_multicall_simple.py` - Basic multicall functionality testing
-- `test_split_and_swap.py` - Complex arbitrage operations testing
+- `deploy_and_verify_v2.py` - Unified deployment and verification
+- `test_deployed_v2.py` - Contract functionality testing
+- `verify_only_v2.py` - Standalone verification script
 
-## Arbitrage Flow Using Multicall
+## Arbitrage Flow Using V2 Multicall
 
 ### Example: Buy Conditional Company Tokens
 
-1. **Pull sDAI from owner to executor**
-   ```python
-   executor.pullToken(sdai_token, amount)
-   ```
+1. **Send sDAI to executor contract** (manual transfer)
 
 2. **Build multicall for arbitrage:**
    ```python
-   calls = [
-       # Approve FutarchyRouter to spend sDAI
-       (sdai_token, approve_data),
-       
-       # Split sDAI into YES/NO conditional sDAI
-       (futarchy_router, split_position_data),
-       
-       # Approve Swapr router for YES tokens
-       (sdai_yes, approve_swapr_data),
-       
-       # Swap YES sDAI for YES Company tokens
-       (swapr_router, swap_yes_data),
-       
-       # Similar for NO tokens...
-   ]
+   from src.commands.multicall_v2 import MulticallV2Builder
+   
+   builder = MulticallV2Builder(executor_address, w3)
+   
+   # Build the sequence
+   builder.add_approve(sdai_token, futarchy_router, amount)
+   builder.add_futarchy_split(futarchy_router, proposal, sdai_token, amount)
+   builder.add_approve(sdai_yes_token, swapr_router, amount_yes)
+   builder.add_swapr_swap(swapr_router, sdai_yes_token, company_yes_token, amount_yes, min_out)
+   # Similar for NO tokens...
+   
+   calls = builder.build()
    ```
 
-3. **Execute multicall:**
+3. **Execute arbitrage with profit verification:**
    ```python
-   executor.multicall(calls)
+   executor.functions.executeArbitrage(
+       calls, 
+       company_token,  # profit token
+       min_profit      # minimum required profit
+   ).transact()
    ```
 
-4. **Push profits back to owner:**
-   ```python
-   executor.pushToken(company_token, MAX_UINT)
-   ```
+4. **Profits automatically sent to owner** ✅
 
 ## Environment Configuration
 
 Required environment variables in `.env.0x9590dAF4d5cd4009c3F9767C5E7668175cFd37CF`:
 
 ```bash
-# Arbitrage Executor
-ARBITRAGE_EXECUTOR_ADDRESS=0xf276e5d62978F0E79089a4B7867A2AD97E3c9be5
+# Arbitrage Executor V2
+ARBITRAGE_EXECUTOR_V2_ADDRESS=0x474024acDA78D7827a94817d3b6C9794F3716AF2
 
 # Token Addresses
 SDAI_TOKEN_ADDRESS=0xaf204776c7245bF4147c2612BF6e5972Ee483701
@@ -120,47 +117,48 @@ FUTARCHY_PROPOSAL_ADDRESS=0x9590dAF4d5cd4009c3F9767C5E7668175cFd37CF
 
 ## Testing Results
 
-### Successful Operations Tested:
+### V2 Contract Testing (scripts/test_deployed_v2.py):
 
-1. **Basic Multicall (test_multicall_simple.py)**
-   - Pull 0.001 sDAI from owner
-   - Approve FutarchyRouter via multicall
-   - Push tokens back to owner
+1. **Ownership Verification** ✅
+   - Contract owner matches deployer
+   - Owner-only functions properly restricted
 
-2. **Complex Arbitrage (test_split_and_swap.py)**
-   - Pull 0.01 sDAI from owner
-   - Split into YES/NO conditional sDAI tokens
-   - Swap YES sDAI for 0.000100893043060749 YES Company tokens
-   - Successfully executed 4 operations atomically
+2. **Token Operations** ✅
+   - Token approval via executor
+   - Balance checking functionality
+
+3. **Multicall Execution** ✅
+   - Multiple view calls executed atomically
+   - Gas efficiency: ~34k gas for 2 operations
 
 ## Integration with Existing Bots
 
-The multicall executor can be integrated with existing arbitrage strategies:
+The V2 multicall executor integrates seamlessly with existing arbitrage strategies:
 
-1. **simple_bot.py** - Monitor price discrepancies and execute trades
-2. **complex_bot.py** - Price discovery and side determination
-3. **buy_cond.py/sell_cond.py** - Conditional token trading logic
+1. **src/arbitrage_commands/simple_bot.py** - Monitor price discrepancies 
+2. **src/arbitrage_commands/complex_bot.py** - Price discovery and side determination
+3. **src/arbitrage_commands/buy_cond.py** - Conditional token trading logic
 
-Instead of executing transactions directly, these bots can:
-1. Build multicall data using MulticallBuilder
-2. Submit to the executor contract
-3. Handle results and profit calculation
+**Integration Pattern:**
+1. Build multicall data using `MulticallV2Builder`
+2. Submit to executor with `executeArbitrage()` 
+3. Automatic profit verification and transfer
 
-## Advantages of Multicall Pattern
+## Advantages of V2 Multicall Pattern
 
-1. **Atomicity** - All operations succeed or fail together
-2. **Gas Efficiency** - Single transaction for complex operations
-3. **Flexibility** - Any combination of operations without contract updates
-4. **Simulation** - Test entire sequences before execution
-5. **Profit Tracking** - Built-in profit calculation and minimum profit enforcement
+1. **Simplified Security** - Owner-only, no complex token management
+2. **Automatic Profit Handling** - Built-in profit calculation and transfer
+3. **Gas Efficiency** - Single transaction for complex operations
+4. **Atomicity** - All operations succeed or fail together
+5. **Flexibility** - Any combination of operations without contract updates
 
 ## Security Considerations
 
-1. **Owner-only** - All functions restricted to contract owner
-2. **Pull/Push Pattern** - Explicit token movement for safety
-3. **Approval Management** - Reset approvals when needed
-4. **Emergency Functions** - rescueToken/rescueETH for stuck funds
-5. **Simulation First** - Test operations before execution
+1. **Owner-only Access** - All functions restricted to contract owner
+2. **Automatic Profit Transfer** - Prevents funds from getting stuck
+3. **Minimal Attack Surface** - Simplified contract with fewer functions
+4. **Emergency Withdrawals** - `withdrawToken()` and `withdrawETH()` for stuck funds
+5. **No Reentrancy Risk** - Simple call pattern without complex state
 
 ## Future Enhancements
 
@@ -170,30 +168,47 @@ Instead of executing transactions directly, these bots can:
 4. **Event Monitoring** - React to specific on-chain events
 5. **Strategy Templates** - Pre-built multicall sequences
 
-## Deployment and Verification
+## Deployment Information
 
-Contract deployed and verified on Gnosisscan:
-- Transaction: `0xbbe728f023fc60252801dda910fd793e9cb6f9c80c76bedbb62e20effc972631`
-- Block: 41045624
-- Verification: Pending (use `verify_contract.py` with constructor args)
+**V2 Contract Successfully Deployed & Verified:**
+- **Address:** `0x474024acDA78D7827a94817d3b6C9794F3716AF2`
+- **Transaction:** `0xda2c83d9df4a163369ecbd7aa68fe0539c8d2007fc7faa332d8f007c2d7fc67e`
+- **Block:** 41088232
+- **Verification:** ✅ Verified on Gnosisscan
+- **Deployment Script:** `scripts/deploy_and_verify_v2.py`
 
 ## Usage Example
 
 ```python
-# Initialize
-from multicall_builder import MulticallBuilder
+# Initialize V2 Builder
+from src.commands.multicall_v2 import MulticallV2Builder
 from web3 import Web3
 
 w3 = Web3(Web3.HTTPProvider(RPC_URL))
-builder = MulticallBuilder()
+executor_address = "0x474024acDA78D7827a94817d3b6C9794F3716AF2"
+builder = MulticallV2Builder(executor_address, w3)
 
 # Build arbitrage sequence
+builder.add_approve(sdai_token, futarchy_router, amount)
 builder.add_futarchy_split(futarchy_router, proposal, sdai_token, amount)
-builder.add_swapr_exact_input(swapr_router, swap_params)
+builder.add_swapr_swap(swapr_router, sdai_yes, company_yes, amount_yes, min_out)
 calls = builder.build()
 
-# Execute via contract
-executor.functions.executeArbitrage(calls, sdai_token, min_profit).transact()
+# Execute with profit verification
+executor.functions.executeArbitrage(
+    calls, 
+    company_token,  # profit token
+    min_profit      # minimum required profit
+).transact()
 ```
 
-This multicall pattern provides maximum flexibility for executing complex arbitrage strategies while maintaining atomicity and safety.
+## File Organization
+
+**Clean root structure after V1 cleanup:**
+- `contracts/` - V2 contract only
+- `scripts/` - Deployment, verification, and testing scripts  
+- `src/commands/multicall_v2.py` - V2 multicall builder
+- `src/arbitrage_commands/` - Trading strategy bots
+- `deployment_info_v2.json` - Current deployment metadata
+
+The V2 multicall pattern provides maximum safety and efficiency for executing complex arbitrage strategies.
