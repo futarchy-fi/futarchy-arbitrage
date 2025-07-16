@@ -1,7 +1,5 @@
 # Futarchy Arbitrage Bot
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## Project Overview
 
 This is a futarchy arbitrage bot for Gnosis Chain that monitors price discrepancies between Balancer pools and Swapr pools to execute profitable trades. The bot trades conditional Company tokens (YES/NO tokens) against sDAI when prices diverge from the synthetic "ideal" price.
