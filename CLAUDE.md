@@ -48,6 +48,38 @@ pip install -r requirements.txt
 python -m pytest tests/
 ```
 
+### Market Data Fetcher
+
+The `fetch_market_data.py` script in `src/setup/` connects to Supabase to fetch market event data and automatically update environment files with correct pool and token addresses.
+
+#### Common Usage
+```bash
+# Update environment file with addresses from market event metadata
+source futarchy_env/bin/activate && source .env.0x<PROPOSAL_ADDRESS> && python -m src.setup.fetch_market_data --proposal --update-env .env.0x<PROPOSAL_ADDRESS>
+
+# View market event metadata without updating
+source futarchy_env/bin/activate && source .env.0x<PROPOSAL_ADDRESS> && python -m src.setup.fetch_market_data --proposal
+```
+
+#### Address Mapping
+The script extracts addresses from Supabase market event metadata and maps them to environment variables:
+
+| Environment Variable | Metadata Path |
+|---------------------|---------------|
+| `SWAPR_POOL_YES_ADDRESS` | `metadata.conditional_pools.yes.address` |
+| `SWAPR_POOL_NO_ADDRESS` | `metadata.conditional_pools.no.address` |
+| `SWAPR_POOL_PRED_YES_ADDRESS` | `metadata.prediction_pools.yes.address` |
+| `SWAPR_POOL_PRED_NO_ADDRESS` | `metadata.prediction_pools.no.address` |
+| `SWAPR_SDAI_YES_ADDRESS` | `metadata.currencyTokens.yes.wrappedCollateralTokenAddress` |
+| `SWAPR_SDAI_NO_ADDRESS` | `metadata.currencyTokens.no.wrappedCollateralTokenAddress` |
+| `SWAPR_GNO_YES_ADDRESS` | `metadata.companyTokens.yes.wrappedCollateralTokenAddress` |
+| `SWAPR_GNO_NO_ADDRESS` | `metadata.companyTokens.no.wrappedCollateralTokenAddress` |
+
+#### Required Environment Variables
+- `SUPABASE_URL` - Supabase project URL
+- `SUPABASE_SERVICE_ROLE_KEY` (or `SUPABASE_ANON_KEY`/`SUPABASE_EDGE_TOKEN`) - Supabase API key
+- `FUTARCHY_PROPOSAL_ADDRESS` - Proposal address to use as market event ID
+
 ## Code Architecture
 
 ### Core Structure
