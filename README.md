@@ -46,6 +46,44 @@ pip install -r requirements.txt
 python -m pytest tests/
 ```
 
+## Setup and Configuration
+
+### Market Data Fetcher
+
+The `fetch_market_data.py` script fetches market event data from Supabase and can automatically update environment files with the correct pool and token addresses.
+
+#### Usage
+
+```bash
+# Activate environment
+source futarchy_env/bin/activate && source .env.0x<PROPOSAL_ADDRESS>
+
+# Fetch market event using FUTARCHY_PROPOSAL_ADDRESS and update environment file
+python -m src.setup.fetch_market_data --proposal --update-env .env.0x<PROPOSAL_ADDRESS>
+
+# Fetch specific market event by ID
+python -m src.setup.fetch_market_data <market_event_id>
+
+# Search all market events for address patterns
+python -m src.setup.fetch_market_data --search-addresses
+```
+
+#### Features
+
+- **Automatic Address Extraction**: Extracts pool and token addresses from Supabase market event metadata
+- **Environment File Updates**: Updates `.env` files with correct addresses for:
+  - `SWAPR_POOL_YES_ADDRESS` / `SWAPR_POOL_NO_ADDRESS`
+  - `SWAPR_POOL_PRED_YES_ADDRESS` / `SWAPR_POOL_PRED_NO_ADDRESS`
+  - `SWAPR_SDAI_YES_ADDRESS` / `SWAPR_SDAI_NO_ADDRESS`
+  - `SWAPR_GNO_YES_ADDRESS` / `SWAPR_GNO_NO_ADDRESS`
+- **Metadata Inspection**: View full market event metadata structure
+
+#### Requirements
+
+- `SUPABASE_URL` environment variable
+- `SUPABASE_ANON_KEY`, `SUPABASE_EDGE_TOKEN`, or `SUPABASE_SERVICE_ROLE_KEY` environment variable
+- `FUTARCHY_PROPOSAL_ADDRESS` environment variable (for --proposal mode)
+
 ## Code Architecture
 
 ### Core Structure
