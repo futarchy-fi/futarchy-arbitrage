@@ -78,7 +78,7 @@ def run_once(amount: float, tolerance: float, broadcast: bool) -> None:
 
     w3 = make_web3()
 
-    yes_base, yes_quote, yes_price = fetch_swapr(addr_yes, w3, base_token_index=0)
+    yes_base, yes_quote, yes_price = fetch_swapr(addr_yes, w3, base_token_index=1)
     _, _, pred_yes_price = fetch_swapr(addr_pred_yes, w3, base_token_index=0)
     no_base, no_quote, no_price = fetch_swapr(addr_no, w3, base_token_index=1)
     bal_base, bal_quote, bal_price_str = fetch_balancer(addr_bal, w3)
@@ -91,6 +91,7 @@ def run_once(amount: float, tolerance: float, broadcast: bool) -> None:
     ideal_bal_price = float(pred_yes_price) * float(yes_price) + (
         1.0 - float(pred_yes_price)
     ) * float(no_price)
+    print(f"Ideal BAL price:  {ideal_bal_price} = {float(pred_yes_price)} * {float(yes_price)} + (1.0 - {float(pred_yes_price)}) * {float(no_price)}")
     print(f"Ideal BAL price: 1 {bal_base} = {ideal_bal_price} {bal_quote}")
 
     bal_price_val = float(bal_price_str)
