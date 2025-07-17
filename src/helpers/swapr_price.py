@@ -3,16 +3,21 @@ Helper for retrieving the spot price of an Algebra/Swapr pool.
 
 Public API
 ----------
-get_pool_price(w3, pool_address, *, base_token_index=0)
+get_pool_price(w3, pool_address, *, base_token_index=None)
     Return (price, base_token_addr, quote_token_addr) where *price* is a
     Decimal giving the amount of *quote* per 1 *base*.
+    
+    If base_token_index is not provided, it auto-detects the base token:
+    - If a token name contains "sdai" (case insensitive), the OTHER token is base
+    - This ensures prices are denominated in sDAI (sDAI as quote token)
+    - If neither token contains "sdai", defaults to token0 as base
 """
 from __future__ import annotations
 
 import sys
 import os
 from decimal import Decimal
-from typing import Tuple
+from typing import Tuple, Optional
 
 # If this script is run directly, ensure the project root is in sys.path
 # so that 'config' module can be found.
@@ -47,6 +52,17 @@ def _decimals(w3: Web3, token_addr: str) -> int:
     return w3.eth.contract(address=token_addr, abi=ERC20_ABI).functions.decimals().call()
 
 
+def _get_token_name(w3: Web3, token_addr: str) -> str:
+    """Get the name of a token, returning empty string if name() is not available."""
+    try:
+        # Ensure address is checksummed
+        checksum_addr = w3.to_checksum_address(token_addr)
+        token_contract = w3.eth.contract(address=checksum_addr, abi=ERC20_ABI)
+        return token_contract.functions.name().call()
+    except Exception:
+        return ""
+
+
 # --------------------------------------------------------------------------- #
 # public                                                                      #
 # --------------------------------------------------------------------------- #
@@ -56,11 +72,17 @@ def get_pool_price(
     w3: Web3,
     pool_address: str,
     *,
-    base_token_index: int = 0,
+    base_token_index: Optional[int] = None,
 ) -> Tuple[Decimal, str, str]:
     """
     Spot price of *base* token (index ``base_token_index``) in terms of the
     quote token for any Algebra pool.
+    
+    If base_token_index is not provided, it will be auto-detected based on token names:
+    1. If one token has name exactly "sdai" (case insensitive), the OTHER token becomes base
+    2. Otherwise, if one token name contains "sdai", the OTHER token becomes base
+    3. This ensures sDAI is the quote token (price denominated in sDAI)
+    4. If neither token contains "sdai", defaults to token0 as base
     """
     pool = w3.eth.contract(
         address=w3.to_checksum_address(pool_address), abi=ALGEBRA_POOL_ABI
@@ -73,6 +95,26 @@ def get_pool_price(
 
     token0 = pool.functions.token0().call()
     token1 = pool.functions.token1().call()
+
+    # Auto-detect base token if not specified
+    if base_token_index is None:
+        name0 = _get_token_name(w3, token0).lower()
+        name1 = _get_token_name(w3, token1).lower()
+        
+        # sDAI should be the quote token, so the OTHER token is base
+        # Check for exact match first
+        if name0 == "sdai":
+            base_token_index = 1  # token1 is base (GNO)
+        elif name1 == "sdai":
+            base_token_index = 0  # token0 is base (GNO)
+        # Then check for partial match
+        elif "sdai" in name0:
+            base_token_index = 1  # token1 is base (GNO)
+        elif "sdai" in name1:
+            base_token_index = 0  # token0 is base (GNO)
+        else:
+            # Default to token0 as base
+            base_token_index = 0
 
     dec0 = _decimals(w3, token0)
     dec1 = _decimals(w3, token1)
@@ -94,7 +136,7 @@ if __name__ == "__main__":  # pragma: no cover
 
     parser = argparse.ArgumentParser(description="Get Swapr/Algebra pool price.")
     parser.add_argument("--pool_address", help="The address of the Algebra pool.")
-    parser.add_argument("--base_token_index", type=int, default=0, help="Index of the base token (0 or 1). Default: 0")
+    parser.add_argument("--base_token_index", type=int, default=None, help="Index of the base token (0 or 1). If not provided, auto-detects based on 'sdai' in token name.")
 
     args = parser.parse_args()
 
