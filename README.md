@@ -4,6 +4,8 @@
 
 This is a futarchy arbitrage bot for Gnosis Chain that monitors price discrepancies between Balancer pools and Swapr pools to execute profitable trades. The bot trades conditional Company tokens (YES/NO tokens) against sDAI when prices diverge from the synthetic "ideal" price.
 
+A multicall based version is being currently developed.
+
 ## Environment Setup
 
 The project uses Python virtual environments. Two common environments are used:
