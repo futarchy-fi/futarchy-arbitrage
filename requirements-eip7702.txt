@@ -1,0 +1,16 @@
+# Requirements for EIP-7702 support
+# Use with: pip install -r requirements-eip7702.txt
+
+web3>=7.0.0
+eth-account>=0.13.6  # Required for sign_authorization method
+eth-abi>=5.0.0
+eth-utils>=5.0.0
+eth-keys
+requests
+python-dotenv
+supabase
+tabulate
+
+# Optional: For testing and development
+pytest
+pytest-asyncio

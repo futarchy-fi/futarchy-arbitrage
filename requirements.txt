@@ -1,5 +1,5 @@
-web3
-eth-account
+web3==6.11.1
+eth-account==0.11.3
 eth-utils
 eth-keys
 requests
