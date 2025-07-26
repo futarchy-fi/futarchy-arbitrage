@@ -22,20 +22,33 @@
 - Planned Python integration approach with EIP-7702 transaction builder
 - Documented benefits, challenges, and implementation strategy
 
-#### 4. Implementation Started 🔄
-- Created initial FutarchyBatchExecutor.sol contract with:
-  - Generic batch execution functions
+#### 4. Infrastructure Setup (Subtask 1) ✅
+**Contract Development**:
+- Created FutarchyBatchExecutor.sol contract with:
+  - Generic batch execution functions (`execute`, `executeWithResults`)
   - Specialized functions for buy/sell conditional flows
-  - Approval management utilities
+  - Approval management utilities (`setApprovals`)
   - Proper error handling and events
-- Created detailed implementation plan with security considerations
+  - Self-execution protection for EIP-7702
+- Generated contract ABI in `src/config/abis/FutarchyBatchExecutor.json`
+
+**Python Infrastructure**:
+- Implemented `eip7702_builder.py` with full EIP-7702 transaction building support
+- Created `pectra_verifier.py` for infrastructure verification
+- Added deployment script `deploy_batch_executor.py`
+
+**Testing Infrastructure**:
+- Created comprehensive test suite in `test_eip7702_arbitrage.py`
+- Added multiple test scripts for various scenarios
+- Implemented test helpers for EIP-7702 functionality
 
 ### Current Status
 
-**Working on**: Implementation contract design
-- Just completed the initial Solidity contract
-- Created detailed plan for advanced features (dynamic amounts, conditional execution)
-- Ready to proceed with Python integration utilities
+**Working on**: Completing infrastructure deployment
+- Contract is ready for deployment
+- Python infrastructure is implemented
+- Verification tools are in place
+- Ready to proceed with buy/sell conditional bundle implementation
 
 ### Next Steps
 
@@ -66,28 +79,45 @@
 ### Files Created/Modified
 
 **Created**:
-- `/contracts/FutarchyBatchExecutor.sol` - Implementation contract
+- `/contracts/FutarchyBatchExecutor.sol` - Implementation contract ✅
+- `/src/config/abis/FutarchyBatchExecutor.json` - Contract ABI ✅
+- `/src/helpers/eip7702_builder.py` - Transaction builder utilities ✅
+- `/src/helpers/pectra_verifier.py` - Infrastructure verification ✅
+- `/src/setup/deploy_batch_executor.py` - Deployment script ✅
+- `/tests/test_eip7702_arbitrage.py` - Test suite ✅
+- `/tests/test_eip7702.py` - Basic EIP-7702 tests ✅
+- `/scripts/test_eip7702_*.py` - Various test scripts ✅
 - `/.claude/tasks/pectra-bundled-transactions/onboarding.md` - Initial research
 - `/.claude/tasks/pectra-bundled-transactions/onboarding-summary.md` - Summary
 - `/.claude/tasks/pectra-bundled-transactions/eip7702-integration-design.md` - Design doc
 - `/.claude/tasks/pectra-bundled-transactions/implementation-contract-plan.md` - Contract plan
 
 **To Be Created**:
-- `src/helpers/eip7702_builder.py` - Transaction builder utilities
 - `src/arbitrage_commands/buy_cond_eip7702.py` - Modified buy function
 - `src/arbitrage_commands/sell_cond_eip7702.py` - Modified sell function
 
 **To Be Modified**:
-- `src/arbitrage_commands/complex_bot.py` - Add EIP-7702 support
+- `src/arbitrage_commands/pectra_bot.py` - Implement EIP-7702 support (currently just a copy)
 
 ### Time Estimate
 
 - Research & Planning: ✅ Complete (4 hours)
-- Implementation Contract: 🔄 In Progress (2 hours done, 2-3 hours remaining)
-- Python Integration: ⏳ Not Started (4-6 hours estimated)
-- Testing & Debugging: ⏳ Not Started (3-4 hours estimated)
-- Total Progress: ~25% complete
+- Infrastructure Setup (Subtask 1): ✅ Complete (6 hours)
+  - Contract Development: ✅ Complete
+  - Python Infrastructure: ✅ Complete
+  - Testing Infrastructure: ✅ Complete
+- Buy Conditional Bundle (Subtask 2): ⏳ Not Started (3-4 hours estimated)
+- Sell Conditional Bundle (Subtask 3): ⏳ Not Started (3-4 hours estimated)
+- Simulation & Testing (Subtask 4): ⏳ Not Started (2-3 hours estimated)
+- Bot Integration (Subtask 5): ⏳ Not Started (2-3 hours estimated)
+- Total Progress: ~40% complete
 
 ### Summary
 
-Successfully completed the research and design phase. Created the initial implementation contract and have a clear plan for Python integration. Ready to proceed with building the EIP-7702 transaction utilities and integrating with the complex bot. The architecture is well-understood and documented.
+Successfully completed the infrastructure setup phase (Subtask 1). All foundational components are in place:
+- FutarchyBatchExecutor contract is developed and ready for deployment
+- EIP-7702 transaction builder is implemented in Python
+- Verification and testing infrastructure is complete
+- Contract ABI and deployment scripts are ready
+
+The project is now ready to proceed with implementing the buy and sell conditional bundle functions that will leverage this infrastructure for atomic arbitrage execution.
