@@ -38,7 +38,7 @@ contract FutarchyBatchExecutor {
      */
     function execute(Call[] calldata calls) external payable {
         // Ensure the caller is the contract itself (EIP-7702 self-execution)
-        require(msg.sender == address(this), InvalidAuthority());
+        if (msg.sender != address(this)) revert InvalidAuthority();
         
         _executeBatch(calls);
     }
@@ -50,7 +50,7 @@ contract FutarchyBatchExecutor {
      * @return results Array of return data from each call
      */
     function executeWithResults(Call[] calldata calls) external payable returns (bytes[] memory results) {
-        require(msg.sender == address(this), InvalidAuthority());
+        if (msg.sender != address(this)) revert InvalidAuthority();
         
         results = new bytes[](calls.length);
         
@@ -77,7 +77,7 @@ contract FutarchyBatchExecutor {
         address[] calldata spenders,
         uint256[] calldata amounts
     ) external {
-        require(msg.sender == address(this), InvalidAuthority());
+        if (msg.sender != address(this)) revert InvalidAuthority();
         require(tokens.length == spenders.length && tokens.length == amounts.length, "Length mismatch");
         
         for (uint256 i = 0; i < tokens.length; i++) {
@@ -91,7 +91,7 @@ contract FutarchyBatchExecutor {
      * @param params Encoded parameters for the arbitrage operation
      */
     function executeBuyConditional(bytes calldata params) external payable {
-        require(msg.sender == address(this), InvalidAuthority());
+        if (msg.sender != address(this)) revert InvalidAuthority();
         
         // This would decode params and execute the specific buy conditional flow
         // For now, it's a placeholder - actual implementation would decode and execute
@@ -104,7 +104,7 @@ contract FutarchyBatchExecutor {
      * @param params Encoded parameters for the arbitrage operation
      */
     function executeSellConditional(bytes calldata params) external payable {
-        require(msg.sender == address(this), InvalidAuthority());
+        if (msg.sender != address(this)) revert InvalidAuthority();
         
         // This would decode params and execute the specific sell conditional flow
         // For now, it's a placeholder - actual implementation would decode and execute

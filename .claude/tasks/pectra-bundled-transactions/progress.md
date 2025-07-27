@@ -44,24 +44,38 @@
 
 ### Current Status
 
-**Working on**: Completing infrastructure deployment
-- Contract is ready for deployment
-- Python infrastructure is implemented
-- Verification tools are in place
-- Ready to proceed with buy/sell conditional bundle implementation
+**Working on**: Subtask 3 - Sell Conditional Bundle implementation
+- Subtask 2 (Buy Conditional Bundle) is complete
+- All infrastructure is deployed and tested
+- Ready to implement sell conditional flow
+
+#### 5. Buy Conditional Bundle (Subtask 2) ✅
+**Implementation Complete**:
+- Created `buy_cond_eip7702.py` with full bundled transaction logic
+- Implemented 3-step simulation approach:
+  - Discovery simulation with exact-in swaps
+  - Balanced simulation with exact-out swaps
+  - Final simulation with liquidation
+- Created `bundle_helpers.py` with comprehensive helper functions:
+  - Call encoding functions for all operations
+  - Result parsing for executeWithResults
+  - Liquidation logic for imbalanced amounts
+  - Gas parameter calculations
+- Integrated with `pectra_bot.py` using `--use-bundle` flag
+- Replaced Tenderly with eth_call simulation using state overrides
 
 ### Next Steps
 
-1. **Immediate Next**:
-   - Create EIP-7702 transaction builder in Python
-   - Implement call encoding utilities for all operations
-   - Create modified buy/sell functions using bundled transactions
+1. **Immediate Next** (Subtask 3):
+   - Create `sell_cond_eip7702.py` for sell conditional flow
+   - Adapt existing sell logic to bundled approach
+   - Implement reverse order operations (Balancer first)
 
 2. **Following Steps**:
-   - Test implementation contract on local fork
+   - Complete simulation and testing (Subtask 4)
    - Deploy to Gnosis testnet
-   - Integrate with complex bot
-   - Performance testing and optimization
+   - Performance benchmarking
+   - Documentation updates
 
 ### Key Decisions Made
 
