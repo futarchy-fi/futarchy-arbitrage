@@ -24,3 +24,9 @@ verify_key.py
 
 # Debug files
 .debug/
+
+# Additional Python virtual environments
+eip7702_env/
+
+# Claude-specific files
+# .claude/
