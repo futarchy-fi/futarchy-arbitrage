@@ -53,7 +53,7 @@ COMPANY_NO = os.environ["SWAPR_GNO_NO_ADDRESS"]
 
 # Other parameters
 FUTARCHY_PROPOSAL = os.environ["FUTARCHY_PROPOSAL_ADDRESS"]
-BALANCER_POOL_ID = os.environ.get("BALANCER_POOL_ID", "")
+BALANCER_POOL = os.environ["BALANCER_POOL_ADDRESS"]
 
 
 def build_buy_conditional_bundle(
@@ -132,7 +132,7 @@ def build_buy_conditional_bundle(
     # Steps 10-11: Swap Company token to sDAI on Balancer
     calls.append(encode_approval_call(COMPANY_TOKEN, BALANCER_VAULT, 2**256 - 1))
     calls.append(encode_balancer_swap_call(
-        BALANCER_VAULT, BALANCER_POOL_ID, COMPANY_TOKEN, SDAI_TOKEN,
+        BALANCER_VAULT, BALANCER_POOL, COMPANY_TOKEN, SDAI_TOKEN,
         merge_amount, account.address, account.address
     ))
     
@@ -359,26 +359,41 @@ def buy_conditional_bundled(
     Returns:
         Dictionary with results (simulation or execution)
     """
-    # Run 3-step simulation
-    simulation_results = simulate_buy_conditional_bundle(amount)
-    
-    # Build final optimized bundle
-    builder = EIP7702TransactionBuilder(w3, IMPLEMENTATION_ADDRESS)
-    final_bundle = build_buy_conditional_bundle(amount, simulation_results)
-    
-    # Add calls to builder
-    for call in final_bundle:
-        builder.add_call(call['target'], call['value'], call['data'])
+    if not broadcast:
+        # Run 3-step simulation
+        simulation_results = simulate_buy_conditional_bundle(amount)
+        
+        # Build final optimized bundle
+        builder = EIP7702TransactionBuilder(w3, IMPLEMENTATION_ADDRESS)
+        final_bundle = build_buy_conditional_bundle(amount, simulation_results)
+        
+        # Add calls to builder
+        for call in final_bundle:
+            builder.add_call(call['target'], call['value'], call['data'])
     
     if broadcast:
-        print("\nBroadcasting bundled transaction...")
+        print("\nSkipping simulation, broadcasting bundled transaction directly...")
+        
+        # Build bundle without simulation results (using exact-in swaps)
+        builder = EIP7702TransactionBuilder(w3, IMPLEMENTATION_ADDRESS)
+        direct_bundle = build_buy_conditional_bundle(amount)
+        
+        # Add calls to builder
+        for call in direct_bundle:
+            builder.add_call(call['target'], call['value'], call['data'])
         
         # Build and sign transaction
         tx = builder.build_transaction(account, calculate_bundle_gas_params(w3))
         signed_tx = account.sign_transaction(tx)
         
         # Send transaction
-        tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
+        # Handle both old and new eth-account versions
+        if hasattr(signed_tx, 'rawTransaction'):
+            tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
+        elif hasattr(signed_tx, 'raw_transaction'):
+            tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+        else:
+            tx_hash = w3.eth.send_raw_transaction(signed_tx)
         print(f"Transaction sent: {tx_hash.hex()}")
         
         # Wait for receipt
