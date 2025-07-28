@@ -64,6 +64,44 @@
 - Integrated with `pectra_bot.py` using `--use-bundle` flag
 - Replaced Tenderly with eth_call simulation using state overrides
 
+#### 5.1. Debug and Fix Invalid Opcode Issue (Subtask 2.1) 🚧
+**Problem Discovered**:
+During on-chain testing, transactions are failing with "opcode 0xef not defined" error.
+
+**Root Cause Analysis**:
+- The FutarchyBatchExecutor contract bytecode contains `0xEF` bytes at positions that are interpreted as opcodes
+- EIP-3541 made contracts containing the `0xEF` opcode invalid (reserved for EOF - Ethereum Object Format)
+- When using EIP-7702, the EOA's code is temporarily replaced with the implementation contract's code
+- The EVM rejects execution when it encounters the invalid `0xEF` opcode
+
+**Technical Details**:
+- Contract deployed at: `0x2552eafcE4e4D0863388Fb03519065a2e5866135`
+- Contains 6 occurrences of "ef" in bytecode, with 2 being actual opcodes at byte positions 1336 and 2082
+- Compiled with Solidity ^0.8.20, which may generate bytecode containing these problematic opcodes
+
+**EIP-7702 Authorization Status**:
+- ✅ Authorization mechanism is working correctly (nonce = account.nonce + 1 when auth signer == tx signer)
+- ✅ Gnosis Chain supports EIP-7702 (live since May 7, 2025 with Pectra upgrade)
+- ❌ Implementation contract execution fails due to invalid opcodes
+
+**Failed Transactions**:
+1. `0xcac5bb6993f3d028d0f66063d181863ca12835497788ea74e10b6d379c8bdca5` - Invalid authorization (nonce=2266)
+2. `0x7c9a2f0c876e1d4c9802b5b9c05aaf2f44b87df027dbb08277e08be126ce1cf0` - Invalid authorization (nonce=0)
+3. `0xdc8a038eeb4e0647a4061ca2201ea0373f57f8ea7b7c7e4df9bc7ed206ab984a` - Valid authorization but execution failed with opcode error
+
+**Solution Approach**:
+1. Recompile FutarchyBatchExecutor with different compiler settings:
+   - Use an older Solidity version (e.g., 0.8.19)
+   - Adjust optimizer settings to avoid generating `0xEF` opcodes
+   - Verify bytecode doesn't contain `0xEF` before deployment
+2. Deploy new implementation contract
+3. Update IMPLEMENTATION_ADDRESS/FUTARCHY_BATCH_EXECUTOR_ADDRESS
+4. Test with simple operations first before full arbitrage bundle
+
+**Alternative Approach**:
+- Create and deploy a minimal test contract (SimpleEIP7702Test.sol) to verify EIP-7702 functionality
+- Once confirmed working, proceed with fixing the main contract
+
 ### Next Steps
 
 1. **Immediate Next** (Subtask 3):
@@ -120,18 +158,24 @@
   - Contract Development: ✅ Complete
   - Python Infrastructure: ✅ Complete
   - Testing Infrastructure: ✅ Complete
-- Buy Conditional Bundle (Subtask 2): ⏳ Not Started (3-4 hours estimated)
+- Buy Conditional Bundle (Subtask 2): ✅ Complete (4 hours)
+  - Implementation: ✅ Complete
+  - Testing revealed opcode issue: 🚧 In Progress
+- Debug & Fix Opcode Issue (Subtask 2.1): 🚧 In Progress (2-3 hours estimated)
 - Sell Conditional Bundle (Subtask 3): ⏳ Not Started (3-4 hours estimated)
 - Simulation & Testing (Subtask 4): ⏳ Not Started (2-3 hours estimated)
 - Bot Integration (Subtask 5): ⏳ Not Started (2-3 hours estimated)
-- Total Progress: ~40% complete
+- Total Progress: ~50% complete
 
 ### Summary
 
-Successfully completed the infrastructure setup phase (Subtask 1). All foundational components are in place:
-- FutarchyBatchExecutor contract is developed and ready for deployment
-- EIP-7702 transaction builder is implemented in Python
-- Verification and testing infrastructure is complete
-- Contract ABI and deployment scripts are ready
+Successfully completed the infrastructure setup phase (Subtask 1) and buy conditional bundle implementation (Subtask 2). Key achievements:
+- ✅ FutarchyBatchExecutor contract developed and deployed
+- ✅ EIP-7702 transaction builder implemented with proper authorization handling
+- ✅ Buy conditional bundle logic fully implemented
+- ✅ Verification and testing infrastructure complete
+- ✅ Successfully sent EIP-7702 transactions on Gnosis Chain
 
-The project is now ready to proceed with implementing the buy and sell conditional bundle functions that will leverage this infrastructure for atomic arbitrage execution.
+**Current Blocker**: The deployed FutarchyBatchExecutor contract contains invalid `0xEF` opcodes, causing execution failures. This needs to be resolved by recompiling and redeploying the contract before proceeding with further development.
+
+**Key Learning**: EIP-7702 authorization requires `nonce = account.nonce + 1` when the authorization signer is the same as the transaction signer. This was successfully implemented and validated on-chain.
