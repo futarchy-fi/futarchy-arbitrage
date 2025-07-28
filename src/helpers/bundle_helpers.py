@@ -485,16 +485,23 @@ def build_liquidation_calls(
     return calls
 
 
-def decode_revert_reason(error_data: bytes) -> str:
+def decode_revert_reason(error_data) -> str:
     """
     Decode revert reason from transaction error.
     
     Args:
-        error_data: Error data from failed transaction
+        error_data: Error data from failed transaction (bytes or hex string)
     
     Returns:
         Human-readable error message
     """
+    # Convert hex string to bytes if needed
+    if isinstance(error_data, str):
+        if error_data.startswith('0x'):
+            error_data = bytes.fromhex(error_data[2:])
+        else:
+            error_data = bytes.fromhex(error_data)
+    
     if len(error_data) < 4:
         return "Unknown error (no data)"
     
@@ -509,7 +516,8 @@ def decode_revert_reason(error_data: bytes) -> str:
     
     # Custom error selectors from FutarchyBatchExecutor
     error_selectors = {
-        bytes.fromhex('1234abcd'): 'CallFailed',  # Update with actual selectors
+        bytes.fromhex('5c0dee5d'): 'CallFailed(uint256,bytes)',  # Actual CallFailed selector
+        bytes.fromhex('1234abcd'): 'CallFailed',  # Placeholder
         bytes.fromhex('5678ef01'): 'InvalidAuthority',
         bytes.fromhex('9abcdef0'): 'InsufficientBalance'
     }

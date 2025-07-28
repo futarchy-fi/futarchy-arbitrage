@@ -151,12 +151,14 @@ class EIP7702TransactionBuilder:
         
         Args:
             account: Account instance to sign with
-            nonce: Optional nonce (defaults to current account nonce)
+            nonce: Authorization nonce (if None, defaults to current account nonce)
+                   Note: When auth signer == tx signer, use account.nonce + 1
             
         Returns:
             Signed authorization dictionary
         """
         if nonce is None:
+            # Get current account nonce
             nonce = self.w3.eth.get_transaction_count(account.address)
             
         auth = {
@@ -216,7 +218,9 @@ class EIP7702TransactionBuilder:
         nonce = self.w3.eth.get_transaction_count(account.address)
         
         # Build authorization
-        signed_auth = self.build_authorization(account, nonce)
+        # When the authorization signer is the same as the transaction signer,
+        # the authorization nonce should be account.nonce + 1
+        signed_auth = self.build_authorization(account, nonce + 1)
         
         # Build batch call data
         call_data = self.build_batch_call_data()
