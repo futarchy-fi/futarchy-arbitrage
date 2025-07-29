@@ -30,11 +30,12 @@ from solcx import compile_source, install_solc
 # Constants                                                                   #
 # --------------------------------------------------------------------------- #
 
-# Solidity version for Pectra compatibility
-SOLIDITY_VERSION = "0.8.20"
+# Solidity version to avoid 0xEF opcodes
+SOLIDITY_VERSION = "0.8.17"
 
 # Contract source path
-CONTRACT_PATH = Path("contracts/FutarchyBatchExecutor.sol")
+# Using Minimal version to avoid 0xEF opcodes
+CONTRACT_PATH = Path("contracts/FutarchyBatchExecutorMinimal.sol")
 
 # Deployment gas settings
 DEPLOYMENT_GAS_LIMIT = 3_000_000
@@ -63,15 +64,17 @@ def compile_contract() -> Dict[str, Any]:
     with open(CONTRACT_PATH, 'r') as f:
         contract_source = f.read()
     
-    # Compile contract
+    # Compile contract with optimizer settings to avoid 0xEF
     compiled = compile_source(
         contract_source,
         output_values=['abi', 'bin', 'bin-runtime'],
-        solc_version=SOLIDITY_VERSION
+        solc_version=SOLIDITY_VERSION,
+        optimize=True,
+        optimize_runs=200
     )
     
     # Extract contract data
-    contract_id = '<stdin>:FutarchyBatchExecutor'
+    contract_id = '<stdin>:FutarchyBatchExecutorMinimal'
     contract_data = compiled[contract_id]
     
     print("✅ Contract compiled successfully")
@@ -80,6 +83,38 @@ def compile_contract() -> Dict[str, Any]:
         'bytecode': contract_data['bin'],
         'runtime_bytecode': contract_data['bin-runtime']
     }
+
+
+# --------------------------------------------------------------------------- #
+# Bytecode Verification                                                       #
+# --------------------------------------------------------------------------- #
+
+def verify_bytecode(bytecode: str) -> bool:
+    """
+    Check if bytecode contains 0xEF opcodes.
+    
+    Args:
+        bytecode: Hex string of contract bytecode
+    
+    Returns:
+        True if bytecode is clean, False if it contains 0xEF
+    """
+    # Remove 0x prefix if present
+    bytecode = bytecode.replace('0x', '')
+    
+    # Check for 0xEF at even positions (opcode positions)
+    ef_positions = []
+    for i in range(0, len(bytecode), 2):
+        if bytecode[i:i+2].lower() == 'ef':
+            ef_positions.append(i // 2)
+    
+    if ef_positions:
+        print(f"❌ Found 0xEF opcodes at byte positions: {ef_positions}")
+        print(f"   Total: {len(ef_positions)} occurrences")
+        return False
+    
+    print("✅ Bytecode verification passed - no 0xEF opcodes found")
+    return True
 
 
 # --------------------------------------------------------------------------- #
@@ -118,7 +153,19 @@ def estimate_deployment_cost(w3: Web3, bytecode: str, account_address: str) -> D
 
 def deploy_contract(w3: Web3, account: Account, contract_data: Dict[str, Any], dry_run: bool = False) -> Optional[str]:
     """Deploy the FutarchyBatchExecutor contract."""
-    print("\n🚀 Deploying FutarchyBatchExecutor...")
+    print("\n🚀 Deploying FutarchyBatchExecutorMinimal...")
+    
+    # Verify bytecode before deployment
+    print("\n🔍 Verifying bytecode...")
+    if not verify_bytecode(contract_data['bytecode']):
+        print("❌ Deployment aborted: bytecode contains 0xEF opcodes")
+        print("   Please check compiler settings and rebuild")
+        return None
+    
+    # Also verify runtime bytecode
+    if not verify_bytecode(contract_data['runtime_bytecode']):
+        print("❌ Deployment aborted: runtime bytecode contains 0xEF opcodes")
+        return None
     
     # Ensure bytecode has 0x prefix
     bytecode = contract_data['bytecode']
@@ -153,12 +200,9 @@ def deploy_contract(w3: Web3, account: Account, contract_data: Dict[str, Any], d
     
     if dry_run:
         print("\n🏃 Dry run mode - skipping actual deployment")
-        # Calculate deterministic address (simplified - not using CREATE2 here)
-        nonce = w3.eth.get_transaction_count(account.address)
-        from eth_utils import keccak, to_checksum_address
-        rlp_encoded = b'\xd6\x94' + bytes.fromhex(account.address[2:]) + bytes([nonce])
-        contract_address = to_checksum_address(keccak(rlp_encoded)[-20:])
-        print(f"📍 Expected Contract Address: {contract_address}")
+        # Calculate deterministic address (simplified)
+        print(f"📍 Contract will be deployed from: {account.address}")
+        contract_address = "0x" + "0" * 40  # Placeholder for dry run
         return contract_address
     
     # Build transaction
@@ -178,7 +222,13 @@ def deploy_contract(w3: Web3, account: Account, contract_data: Dict[str, Any], d
     signed_tx = account.sign_transaction(tx)
     
     print("📡 Broadcasting transaction...")
-    tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+    # Handle both old and new eth-account versions
+    if hasattr(signed_tx, 'rawTransaction'):
+        tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
+    elif hasattr(signed_tx, 'raw_transaction'):
+        tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+    else:
+        tx_hash = w3.eth.send_raw_transaction(signed_tx)
     print(f"📋 Transaction Hash: {tx_hash.hex()}")
     
     # Wait for confirmation
@@ -314,11 +364,17 @@ def main():
     contract_data = compile_contract()
     
     # Save ABI for reference
-    abi_path = Path("src/config/abis/FutarchyBatchExecutor.json")
+    abi_path = Path("src/config/abis/FutarchyBatchExecutorMinimal.json")
     abi_path.parent.mkdir(parents=True, exist_ok=True)
     with open(abi_path, 'w') as f:
         json.dump(contract_data['abi'], f, indent=2)
     print(f"💾 Saved ABI to {abi_path}")
+    
+    # Also save as the main executor ABI for compatibility
+    compat_path = Path("src/config/abis/FutarchyBatchExecutor.json")
+    with open(compat_path, 'w') as f:
+        json.dump(contract_data['abi'], f, indent=2)
+    print(f"💾 Saved compatibility ABI to {compat_path}")
     
     # Deploy contract
     contract_address = deploy_contract(w3, account, contract_data, args.dry_run)
@@ -334,7 +390,7 @@ def main():
         # Print summary
         print("\n" + "=" * 50)
         print("🎉 Deployment Summary")
-        print(f"   Contract: FutarchyBatchExecutor")
+        print(f"   Contract: FutarchyBatchExecutorMinimal")
         print(f"   Address: {contract_address}")
         print(f"   Network: Chain ID {chain_id}")
         print("\n📝 Next Steps:")
