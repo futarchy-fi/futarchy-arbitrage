@@ -146,6 +146,14 @@ class PectraVerifier:
             self.add_info(f"Contract found at {impl_address}")
             self.add_info(f"Contract size: {len(code)} bytes")
             
+            # Check for 0xEF opcodes
+            if b'\xef' in code:
+                ef_count = code.count(b'\xef')
+                self.add_error(f"Implementation contains {ef_count} 0xEF bytes - must redeploy with Solidity 0.8.19")
+                return False
+            else:
+                self.add_info("Bytecode verification passed - no 0xEF opcodes")
+            
             # Load and check ABI
             abi_path = Path("src/config/abis/FutarchyBatchExecutor.json")
             if not abi_path.exists():
