@@ -1,26 +1,22 @@
 [
   {
+    "anonymous": false,
     "inputs": [
       {
-        "internalType": "address[10]",
-        "name": "targets",
-        "type": "address[10]"
+        "indexed": false,
+        "internalType": "address",
+        "name": "caller",
+        "type": "address"
       },
       {
-        "internalType": "bytes[10]",
-        "name": "calldatas",
-        "type": "bytes[10]"
-      },
-      {
+        "indexed": false,
         "internalType": "uint256",
-        "name": "count",
+        "name": "value",
         "type": "uint256"
       }
     ],
-    "name": "execute10",
-    "outputs": [],
-    "stateMutability": "payable",
-    "type": "function"
+    "name": "TestExecuted",
+    "type": "event"
   },
   {
     "inputs": [
@@ -30,12 +26,17 @@
         "type": "address"
       },
       {
+        "internalType": "uint256",
+        "name": "value",
+        "type": "uint256"
+      },
+      {
         "internalType": "bytes",
         "name": "data",
         "type": "bytes"
       }
     ],
-    "name": "executeOne",
+    "name": "execute",
     "outputs": [
       {
         "internalType": "bytes",
@@ -47,7 +48,10 @@
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "test",
+    "outputs": [],
     "stateMutability": "payable",
-    "type": "receive"
+    "type": "function"
   }
 ]
