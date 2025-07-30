@@ -46,9 +46,9 @@ def make_web3() -> Web3:
     return Web3(Web3.HTTPProvider(rpc_url))
 
 
-def fetch_swapr(pool: str, w3: Web3, *, base_token_index: int = 0) -> Tuple[str, str, str]:
+def fetch_swapr(pool: str, w3: Web3) -> Tuple[str, str, str]:
     """Return 'base', 'quote', price string for an Algebra pool."""
-    price, base, quote = swapr_price(w3, pool, base_token_index=base_token_index)
+    price, base, quote = swapr_price(w3, pool)
     return base, quote, str(price)
 
 
@@ -204,6 +204,175 @@ def buy_conditional_only(amount: float, broadcast: bool = False):
             raise Exception(f"Simulation failed: {result}")
 
 
+def sell_conditional_only(amount: float, broadcast: bool = False):
+    """Execute sell conditional tokens but skip Balancer swap."""
+    from decimal import Decimal
+    from eth_account import Account
+    from helpers.swapr_swap import (
+        w3,
+        client,
+        build_exact_out_tx,
+        parse_simulated_swap_results as parse_simulated_swapr_results,
+        parse_broadcasted_swap_results as parse_broadcasted_swapr_results,
+    )
+    from helpers.split_position import build_split_tx
+    from helpers.merge_position import build_merge_tx
+    from helpers.blockchain_sender import send_tenderly_tx_onchain
+    from helpers.balancer_swap import (
+        build_buy_gno_to_sdai_swap_tx,
+        parse_simulated_swap_results as parse_simulated_balancer_results,
+        parse_broadcasted_swap_results as parse_broadcasted_balancer_results,
+    )
+    
+    acct = Account.from_key(os.environ["PRIVATE_KEY"])
+    
+    # For selling, we swap conditional Company tokens to conditional sDAI
+    token_yes_in = w3.to_checksum_address(os.environ["SWAPR_GNO_YES_ADDRESS"])
+    token_yes_out = w3.to_checksum_address(os.environ["SWAPR_SDAI_YES_ADDRESS"])
+    token_no_in = w3.to_checksum_address(os.environ["SWAPR_GNO_NO_ADDRESS"])
+    token_no_out = w3.to_checksum_address(os.environ["SWAPR_SDAI_NO_ADDRESS"])
+    
+    router_addr = w3.to_checksum_address(os.environ["FUTARCHY_ROUTER_ADDRESS"])
+    proposal_addr = w3.to_checksum_address(os.environ["FUTARCHY_PROPOSAL_ADDRESS"])
+    collateral_addr = w3.to_checksum_address(os.environ["SDAI_TOKEN_ADDRESS"])
+    company_collateral_addr = w3.to_checksum_address(os.environ["COMPANY_TOKEN_ADDRESS"])
+    
+    # Convert amount to Company token units
+    company_amount = Decimal(str(amount)) * 10**18
+    
+    # Step 1: Buy Company token with sDAI on Balancer (to get Company tokens to split)
+    # This step gets us the Company tokens we need
+    balancer_tx = build_buy_gno_to_sdai_swap_tx(
+        w3,
+        client,
+        int(company_amount),
+        acct.address,
+    )
+    
+    # Step 2: Split Company tokens into YES/NO conditional Company tokens
+    split_tx = build_split_tx(
+        w3,
+        client,
+        router_addr,
+        proposal_addr,
+        company_collateral_addr,
+        int(company_amount),
+        acct.address,
+    )
+    
+    # Step 3: Swap conditional Company to conditional sDAI on Swapr (YES)
+    amount_out_min = 0  # Accept any amount for now
+    swapr_yes_tx = build_exact_out_tx(
+        token_yes_in,
+        token_yes_out,
+        int(company_amount),  # We want this much sDAI out
+        int(company_amount * 2),  # Max Company tokens we're willing to spend
+        acct.address,
+    )
+    
+    # Step 4: Swap conditional Company to conditional sDAI on Swapr (NO)
+    swapr_no_tx = build_exact_out_tx(
+        token_no_in,
+        token_no_out,
+        int(company_amount),  # We want this much sDAI out
+        int(company_amount * 2),  # Max Company tokens we're willing to spend
+        acct.address,
+    )
+    
+    bundle = [balancer_tx, split_tx, swapr_yes_tx, swapr_no_tx]
+    
+    if broadcast:
+        # Execute on-chain
+        starting_nonce = w3.eth.get_transaction_count(acct.address)
+        tx_hashes = []
+        for i, tx in enumerate(bundle):
+            tx_hash = send_tenderly_tx_onchain(tx, nonce=starting_nonce + i)
+            tx_hashes.append(tx_hash)
+        
+        # Wait for receipts
+        receipts = [w3.eth.wait_for_transaction_receipt(h) for h in tx_hashes]
+        
+        # Parse Balancer swap (index 0)
+        print(f"Parsing Balancer swap tx: {tx_hashes[0]}")
+        bal_result = parse_broadcasted_balancer_results(tx_hashes[0])
+        if bal_result is None:
+            raise Exception(f"parse_broadcasted_balancer_results returned None for Balancer swap tx {tx_hashes[0]}")
+        company_acquired = bal_result["output_amount"]
+        
+        # Parse YES swap (index 2)
+        print(f"Parsing YES swap tx: {tx_hashes[2]}")
+        yes_result = parse_broadcasted_swapr_results(tx_hashes[2], fixed="out")
+        if yes_result is None:
+            raise Exception(f"parse_broadcasted_swapr_results returned None for YES swap tx {tx_hashes[2]}")
+        yes_sdai_out = yes_result["output_amount"]
+        
+        # Parse NO swap (index 3)
+        print(f"Parsing NO swap tx: {tx_hashes[3]}")
+        no_result = parse_broadcasted_swapr_results(tx_hashes[3], fixed="out")
+        if no_result is None:
+            raise Exception(f"parse_broadcasted_swapr_results returned None for NO swap tx {tx_hashes[3]}")
+        no_sdai_out = no_result["output_amount"]
+        
+        # Merge conditional sDAI back to regular sDAI
+        merge_amount = min(yes_sdai_out, no_sdai_out)
+        if merge_amount > 0:
+            merge_tx = build_merge_tx(
+                w3,
+                client,
+                router_addr,
+                proposal_addr,
+                collateral_addr,
+                int(merge_amount * 10**18),
+                acct.address,
+            )
+            merge_hash = send_tenderly_tx_onchain(merge_tx, nonce=starting_nonce + len(bundle))
+            w3.eth.wait_for_transaction_receipt(merge_hash)
+        
+        return {
+            "company_acquired": float(company_acquired),
+            "yes_sdai": float(yes_sdai_out),
+            "no_sdai": float(no_sdai_out),
+            "merged_sdai": float(merge_amount),
+            "status": "completed without final Balancer swap"
+        }
+    else:
+        # Simulate only
+        result = client.simulate(bundle)
+        
+        if result and result.get("simulation_results"):
+            sims = result["simulation_results"]
+            
+            # Parse Balancer swap (index 0)
+            bal_result = parse_simulated_balancer_results([sims[0]])
+            if bal_result is None:
+                raise Exception(f"parse_simulated_balancer_results returned None for Balancer swap simulation")
+            company_acquired = Decimal(bal_result["output_amount"])
+            
+            # Parse YES swap (index 2)
+            yes_result = parse_simulated_swapr_results([sims[2]])
+            if yes_result is None:
+                raise Exception(f"parse_simulated_swapr_results returned None for YES swap simulation")
+            yes_sdai_out = Decimal(yes_result["output_amount"])
+            
+            # Parse NO swap (index 3)
+            no_result = parse_simulated_swapr_results([sims[3]])
+            if no_result is None:
+                raise Exception(f"parse_simulated_swapr_results returned None for NO swap simulation")
+            no_sdai_out = Decimal(no_result["output_amount"])
+            
+            merge_amount = min(yes_sdai_out, no_sdai_out)
+            
+            return {
+                "company_acquired": float(company_acquired),
+                "yes_sdai": float(yes_sdai_out),
+                "no_sdai": float(no_sdai_out),
+                "merged_sdai": float(merge_amount),
+                "status": "simulated without final Balancer swap"
+            }
+        else:
+            raise Exception(f"Simulation failed: {result}")
+
+
 # --------------------------------------------------------------------------- #
 # core logic – one shot                                                       #
 # --------------------------------------------------------------------------- #
@@ -225,9 +394,9 @@ def run_once(amount: float, tolerance: float, broadcast: bool) -> None:
 
     w3 = make_web3()
 
-    yes_base, yes_quote, yes_price = fetch_swapr(addr_yes, w3, base_token_index=0)
-    _, _, pred_yes_price = fetch_swapr(addr_pred_yes, w3, base_token_index=0)
-    no_base, no_quote, no_price = fetch_swapr(addr_no, w3, base_token_index=1)
+    yes_base, yes_quote, yes_price = fetch_swapr(addr_yes, w3)
+    _, _, pred_yes_price = fetch_swapr(addr_pred_yes, w3)
+    no_base, no_quote, no_price = fetch_swapr(addr_no, w3)
     bal_base, bal_quote, bal_price_str = fetch_balancer(addr_bal, w3)
 
     print(f"YES  pool: 1 {yes_base} = {yes_price} {yes_quote}")
@@ -243,7 +412,7 @@ def run_once(amount: float, tolerance: float, broadcast: bool) -> None:
     bal_price_val = float(bal_price_str)
 
     if amount > 0:
-        if bal_price_val > ideal_bal_price:
+        if bal_price_val < ideal_bal_price:
             print("→ Buying conditional Company tokens (without Balancer swap)")
             try:
                 if broadcast:
@@ -264,8 +433,25 @@ def run_once(amount: float, tolerance: float, broadcast: bool) -> None:
                 import traceback
                 traceback.print_exc()
         else:
-            print("→ Selling conditional Company tokens not supported in light mode")
-            print("  (Would require buying Company tokens first)")
+            print("→ Selling conditional Company tokens (without Balancer swap)")
+            try:
+                if broadcast:
+                    result = sell_conditional_only(amount, broadcast=False)
+                    print(f"Simulated Result: {result}")
+                    if result['merged_sdai'] > 0:
+                        print("→ Broadcasting transaction")
+                        result = sell_conditional_only(amount, broadcast=True)
+                        print(f"Result: {result}")
+                    else:
+                        print("→ No sDAI would be produced")
+                else:
+                    print("→ Not broadcasting transaction")
+                    result = sell_conditional_only(amount, broadcast=False)
+                    print(f"Simulated Result: {result}")
+            except Exception as e:
+                print(f"Error: {e}")
+                import traceback
+                traceback.print_exc()
 
     # Re-fetch to display post-trade prices
     yes_base, yes_quote, yes_price = fetch_swapr(addr_yes, w3, base_token_index=1)
