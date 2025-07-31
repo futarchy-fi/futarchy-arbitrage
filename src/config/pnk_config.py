@@ -8,7 +8,7 @@ PNK_WETH_POOL = "0x2613Cb099C12CECb1bd290Fd0eF6833949374165"
 WETH_WXDAI_POOL = "0x1865d5445010e0baf8be2eb410d3eae4a68683c2"
 
 # Contract addresses
-SDAI_CONTRACT = "0x89C80A4540A00b5270347E02e2E144c71da2EceD"
+SDAI_CONTRACT = "0xaf204776c7245bF4147c2612BF6e5972Ee483701"
 
 def get_pnk_config() -> Dict[str, Any]:
     """Get PNK configuration from environment variables."""
