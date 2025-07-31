@@ -252,10 +252,11 @@ def buy_conditional_only(amount: float, broadcast: bool = False):
             raise Exception(f"Simulation failed: {result}")
 
 
-def sell_conditional_only(amount: float, broadcast: bool = False):
+def sell_conditional_only(amount: float, pnk_price: float, broadcast: bool = False):
     """Execute sell conditional tokens but skip Balancer swap.
     
     This assumes you already have Company tokens to sell.
+    Amount is in sDAI, we convert to PNK tokens needed.
     """
     from decimal import Decimal
     from eth_account import Account
@@ -283,8 +284,10 @@ def sell_conditional_only(amount: float, broadcast: bool = False):
     collateral_addr = w3.to_checksum_address(os.environ["SDAI_TOKEN_ADDRESS"])
     company_collateral_addr = w3.to_checksum_address(os.environ["COMPANY_TOKEN_ADDRESS"])
     
-    # Convert amount to Company token units
-    company_amount = Decimal(str(amount)) * 10**18
+    # Convert sDAI amount to Company token amount using PNK price
+    # amount (sDAI) / pnk_price (sDAI per PNK) = PNK tokens needed
+    company_tokens_needed = Decimal(str(amount)) / Decimal(str(pnk_price))
+    company_amount = int(company_tokens_needed * 10**18)
     
     # Step 1: Split Company tokens into YES/NO conditional Company tokens
     split_tx = build_split_tx(
@@ -359,7 +362,7 @@ def sell_conditional_only(amount: float, broadcast: bool = False):
             w3.eth.wait_for_transaction_receipt(merge_hash)
         
         return {
-            "company_sold": float(amount),
+            "company_sold": float(company_tokens_needed),
             "yes_sdai": float(yes_sdai_out),
             "no_sdai": float(no_sdai_out),
             "merged_sdai": float(merge_amount),
@@ -387,7 +390,7 @@ def sell_conditional_only(amount: float, broadcast: bool = False):
             merge_amount = min(yes_sdai_out, no_sdai_out)
             
             return {
-                "company_sold": float(amount),
+                "company_sold": float(company_tokens_needed),
                 "yes_sdai": float(yes_sdai_out),
                 "no_sdai": float(no_sdai_out),
                 "merged_sdai": float(merge_amount),
@@ -466,17 +469,17 @@ def run_once(amount: float, tolerance: float, broadcast: bool) -> None:
             print("→ Selling conditional Company tokens (without Balancer swap)")
             try:
                 if broadcast:
-                    result = sell_conditional_only(amount, broadcast=False)
+                    result = sell_conditional_only(amount, pnk_price_val, broadcast=False)
                     print(f"Simulated Result: {result}")
                     if result['merged_sdai'] > 0:
                         print("→ Broadcasting transaction")
-                        result = sell_conditional_only(amount, broadcast=True)
+                        result = sell_conditional_only(amount, pnk_price_val, broadcast=True)
                         print(f"Result: {result}")
                     else:
                         print("→ No sDAI would be produced")
                 else:
                     print("→ Not broadcasting transaction")
-                    result = sell_conditional_only(amount, broadcast=False)
+                    result = sell_conditional_only(amount, pnk_price_val, broadcast=False)
                     print(f"Simulated Result: {result}")
             except Exception as e:
                 print(f"Error: {e}")
