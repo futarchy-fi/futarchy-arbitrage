@@ -103,9 +103,9 @@ def get_pool_price(
         
         # sDAI should be the quote token, so the OTHER token is base
         # Check for exact match first
-        if name0 == "sdai":
+        if name0 == "savings xdai":
             base_token_index = 1  # token1 is base (GNO)
-        elif name1 == "sdai":
+        elif name1 == "savings xdai":
             base_token_index = 0  # token0 is base (GNO)
         # Then check for partial match
         elif "sdai" in name0:
