@@ -16,6 +16,9 @@ from eth_utils import keccak
 # Transfer event signature for tracking token movements
 TRANSFER_EVENT_SIGNATURE = Web3.keccak(text="Transfer(address,address,uint256)")
 
+# Zero address for padding
+ZERO_ADDRESS = '0x0000000000000000000000000000000000000000'
+
 
 def encode_approval_call(token: str, spender: str, amount: int) -> Dict[str, Any]:
     """
@@ -589,3 +592,185 @@ def verify_bundle_profitability(
     net_profit = gross_profit - gas_cost_sdai
     
     return net_profit, net_profit > 0
+
+
+def get_token_balance(w3: Web3, token_address: str, account_address: str) -> int:
+    """
+    Get ERC20 token balance for an account.
+    
+    Args:
+        w3: Web3 instance
+        token_address: Token contract address
+        account_address: Account to check balance for
+        
+    Returns:
+        Balance in wei
+    """
+    # balanceOf(address)
+    function_selector = keccak(text="balanceOf(address)")[:4]
+    encoded_params = encode(['address'], [Web3.to_checksum_address(account_address)])
+    
+    result = w3.eth.call({
+        'to': Web3.to_checksum_address(token_address),
+        'data': function_selector + encoded_params
+    })
+    
+    return int.from_bytes(result, 'big')
+
+
+def simulate_bundle_with_state_tracking(
+    w3: Web3,
+    account_address: str,
+    implementation_address: str,
+    bundle_calls: List[Dict[str, Any]],
+    tokens_to_track: List[str]
+) -> Dict[str, Any]:
+    """
+    Simulate bundle execution and track token balance changes.
+    
+    Since FutarchyBatchExecutorMinimal doesn't return data, we track state changes
+    by querying balances before and after simulation.
+    
+    Args:
+        w3: Web3 instance
+        account_address: EOA address that will execute the bundle
+        implementation_address: FutarchyBatchExecutorMinimal address
+        bundle_calls: List of calls to execute
+        tokens_to_track: List of token addresses to track balance changes
+        
+    Returns:
+        Dictionary with balance changes and simulation results
+    """
+    # Get initial balances
+    initial_balances = {}
+    for token in tokens_to_track:
+        initial_balances[token] = get_token_balance(w3, token, account_address)
+    
+    # Build execute10 calldata
+    if len(bundle_calls) > 10:
+        raise ValueError(f"Too many calls: {len(bundle_calls)} (max 10)")
+    
+    # Build fixed-size arrays
+    targets = []
+    calldatas = []
+    
+    for call in bundle_calls:
+        targets.append(call['target'])
+        calldatas.append(call['data'])
+    
+    # Pad to size 10
+    while len(targets) < 10:
+        targets.append(ZERO_ADDRESS)
+        calldatas.append(b'')
+    
+    # Encode execute10 call
+    function_selector = keccak(text="execute10(address[10],bytes[10],uint256)")[:4]
+    encoded_params = encode(
+        ['address[10]', 'bytes[10]', 'uint256'],
+        [targets, calldatas, len(bundle_calls)]
+    )
+    tx_data = function_selector + encoded_params
+    
+    # State overrides to simulate EIP-7702
+    state_overrides = {
+        account_address: {
+            'code': w3.eth.get_code(implementation_address)
+        }
+    }
+    
+    # Execute simulation
+    try:
+        result = w3.eth.call({
+            'from': account_address,
+            'to': account_address,  # Self-call
+            'data': tx_data,
+            'gas': 10000000  # High gas limit for simulation
+        }, 'latest', state_overrides)
+        
+        # Get final balances in a follow-up call with same state
+        final_balances = {}
+        for token in tokens_to_track:
+            # Query balance with state overrides to see post-execution state
+            balance_data = keccak(text="balanceOf(address)")[:4] + encode(['address'], [Web3.to_checksum_address(account_address)])
+            balance_result = w3.eth.call({
+                'to': Web3.to_checksum_address(token),
+                'data': balance_data
+            }, 'latest', state_overrides)
+            final_balances[token] = int.from_bytes(balance_result, 'big')
+        
+        # Calculate balance changes
+        balance_changes = {}
+        for token in tokens_to_track:
+            balance_changes[token] = final_balances[token] - initial_balances[token]
+        
+        return {
+            'success': True,
+            'initial_balances': initial_balances,
+            'final_balances': final_balances,
+            'balance_changes': balance_changes,
+            'result': result.hex() if result else '0x'
+        }
+        
+    except Exception as e:
+        return {
+            'success': False,
+            'error': str(e),
+            'revert_reason': decode_revert_reason(e.data) if hasattr(e, 'data') else str(e)
+        }
+
+
+def extract_outputs_from_state_changes(
+    balance_changes: Dict[str, int],
+    yes_token: str,
+    no_token: str
+) -> Tuple[int, int]:
+    """
+    Extract YES and NO token outputs from balance changes.
+    
+    Args:
+        balance_changes: Dictionary of token address -> balance change
+        yes_token: YES token address
+        no_token: NO token address
+        
+    Returns:
+        Tuple of (yes_output, no_output)
+    """
+    yes_output = balance_changes.get(yes_token.lower(), 0)
+    no_output = balance_changes.get(no_token.lower(), 0)
+    
+    # Balance changes should be positive for tokens received
+    return max(yes_output, 0), max(no_output, 0)
+
+
+def build_bundle_for_minimal_executor(
+    calls: List[Dict[str, Any]]
+) -> Tuple[List[str], List[bytes], int]:
+    """
+    Convert call dictionaries to arrays for execute10.
+    
+    Args:
+        calls: List of call dictionaries with target, value, data
+        
+    Returns:
+        Tuple of (targets, calldatas, count)
+    """
+    if len(calls) > 10:
+        raise ValueError(f"Bundle has {len(calls)} calls, maximum is 10")
+    
+    targets = []
+    calldatas = []
+    
+    for call in calls:
+        # Check if call has value - minimal executor doesn't support it
+        if call.get('value', 0) > 0:
+            raise ValueError("FutarchyBatchExecutorMinimal doesn't support ETH value transfers")
+        
+        targets.append(call['target'])
+        calldatas.append(call['data'])
+    
+    # Pad to size 10
+    while len(targets) < 10:
+        targets.append(ZERO_ADDRESS)
+        calldatas.append(b'')
+    
+    return targets, calldatas, len(calls)
