@@ -186,22 +186,40 @@ class EIP7702TransactionBuilder:
     
     def build_batch_call_data(self) -> bytes:
         """
-        Build the calldata for execute(Call[] calldata calls).
+        Build the calldata for execute10(address[10],bytes[10],uint256).
         
         Returns:
             Encoded calldata for the batch execution
         """
-        # execute(Call[])
-        function_selector = keccak(text="execute((address,uint256,bytes)[])")[:4]
+        # Check if we have too many calls
+        if len(self.calls) > 10:
+            raise ValueError(f"Too many calls for execute10: {len(self.calls)} (max 10)")
         
-        # Encode array of structs
-        calls_data = []
+        # execute10(address[10],bytes[10],uint256)
+        function_selector = keccak(text="execute10(address[10],bytes[10],uint256)")[:4]
+        
+        # Build fixed-size arrays
+        targets = []
+        calldatas = []
+        
         for call in self.calls:
-            calls_data.append((call['target'], call['value'], call['data']))
+            targets.append(call['target'])
+            calldatas.append(call['data'])
         
-        encoded_calls = encode(['(address,uint256,bytes)[]'], [calls_data])
+        # Pad arrays to size 10
+        zero_address = '0x0000000000000000000000000000000000000000'
+        while len(targets) < 10:
+            targets.append(zero_address)
+            calldatas.append(b'')
         
-        return function_selector + encoded_calls
+        # Encode parameters
+        count = len(self.calls)
+        encoded_params = encode(
+            ['address[10]', 'bytes[10]', 'uint256'],
+            [targets, calldatas, count]
+        )
+        
+        return function_selector + encoded_params
     
     def build_transaction(self, account: Account, gas_params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
