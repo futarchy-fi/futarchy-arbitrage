@@ -29,26 +29,38 @@ account = Account.from_key(os.environ["PRIVATE_KEY"])
 IMPLEMENTATION_ADDRESS = os.environ.get("FUTARCHY_BATCH_EXECUTOR_ADDRESS", "0x65eb5a03635c627a0f254707712812B234753F31")
 
 
-def send_eip7702_bundle_onchain():
+def send_eip7702_bundle_onchain(simple_test=False):
     """Send EIP-7702 bundled transaction directly on-chain."""
     print("=== Sending EIP-7702 Bundle On-Chain ===\n")
     
-    # Check approvals
-    approvals = check_approvals()
-    print("Current approvals:")
-    for key, status in approvals.items():
-        print(f"  {key}: {'✅' if status else '❌'}")
-    
-    # Build bundle for small amount
-    amount = Decimal("0.001")  # 0.001 sDAI
-    print(f"\nBuilding bundle for {amount} sDAI...")
-    
-    # Build bundle without simulation results
-    bundle_calls = build_buy_conditional_bundle_minimal(
-        amount,
-        simulation_results=None,
-        skip_approvals=approvals
-    )
+    if simple_test:
+        # Just do a simple approval call for testing
+        print("Running simple test with just one approval call...")
+        from src.helpers.bundle_helpers import encode_approval_call
+        
+        SDAI_TOKEN = os.environ["SDAI_TOKEN_ADDRESS"]
+        FUTARCHY_ROUTER = os.environ["FUTARCHY_ROUTER_ADDRESS"]
+        
+        # Build single approval call
+        approval_call = encode_approval_call(SDAI_TOKEN, FUTARCHY_ROUTER, 1000000)  # 0.000001 sDAI
+        bundle_calls = [approval_call]
+    else:
+        # Check approvals
+        approvals = check_approvals()
+        print("Current approvals:")
+        for key, status in approvals.items():
+            print(f"  {key}: {'✅' if status else '❌'}")
+        
+        # Build bundle for small amount
+        amount = Decimal("0.001")  # 0.001 sDAI
+        print(f"\nBuilding bundle for {amount} sDAI...")
+        
+        # Build bundle without simulation results
+        bundle_calls = build_buy_conditional_bundle_minimal(
+            amount,
+            simulation_results=None,
+            skip_approvals=approvals
+        )
     
     print(f"Bundle has {len(bundle_calls)} calls")
     
@@ -122,10 +134,14 @@ def main():
     print(f"\nAccount: {account.address}")
     print(f"Implementation: {IMPLEMENTATION_ADDRESS}")
     print(f"Chain ID: {w3.eth.chain_id}")
-    print(f"Balance: {w3.from_wei(w3.eth.get_balance(account.address), 'ether')} ETH\n")
+    print(f"Balance: {w3.from_wei(w3.eth.get_balance(account.address), 'ether')} xDAI\n")
+    
+    # Add simple test option
+    import sys
+    simple_test = "--simple" in sys.argv
     
     # Send transaction
-    receipt = send_eip7702_bundle_onchain()
+    receipt = send_eip7702_bundle_onchain(simple_test=simple_test)
     
     if receipt:
         print("\n" + "=" * 50)
