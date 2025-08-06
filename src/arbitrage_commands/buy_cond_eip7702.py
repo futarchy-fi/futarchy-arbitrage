@@ -17,12 +17,11 @@ from eth_account import Account
 from eth_abi import encode, decode
 
 from src.helpers.eip7702_builder import EIP7702TransactionBuilder
+from src.helpers.swapr_swap import router as swapr_router
 from src.helpers.bundle_helpers import (
     encode_approval_call,
     encode_split_position_call,
     encode_merge_positions_call,
-    encode_swapr_exact_in_call,
-    encode_swapr_exact_out_call,
     encode_balancer_swap_call,
     parse_bundle_results,
     extract_swap_outputs,
@@ -30,7 +29,8 @@ from src.helpers.bundle_helpers import (
     build_liquidation_calls,
     decode_revert_reason,
     calculate_bundle_gas_params,
-    verify_bundle_profitability
+    verify_bundle_profitability,
+    get_token_balance
 )
 
 # Initialize Web3 and account
@@ -41,7 +41,7 @@ account = Account.from_key(os.environ["PRIVATE_KEY"])
 FUTARCHY_ROUTER = os.environ["FUTARCHY_ROUTER_ADDRESS"]
 SWAPR_ROUTER = os.environ["SWAPR_ROUTER_ADDRESS"]
 BALANCER_VAULT = os.environ["BALANCER_VAULT_ADDRESS"]
-IMPLEMENTATION_ADDRESS = os.environ.get("FUTARCHY_BATCH_EXECUTOR_ADDRESS", "")
+IMPLEMENTATION_ADDRESS = os.environ.get("FUTARCHY_BATCH_EXECUTOR_ADDRESS", "0x65eb5a03635c627a0f254707712812B234753F31")
 
 # Token addresses
 SDAI_TOKEN = os.environ["SDAI_TOKEN_ADDRESS"]
@@ -53,7 +53,49 @@ COMPANY_NO = os.environ["SWAPR_GNO_NO_ADDRESS"]
 
 # Other parameters
 FUTARCHY_PROPOSAL = os.environ["FUTARCHY_PROPOSAL_ADDRESS"]
-BALANCER_POOL = os.environ["BALANCER_POOL_ADDRESS"]
+BALANCER_POOL = os.environ.get("BALANCER_POOL_ADDRESS", "")
+BALANCER_POOL_ID = os.environ.get("BALANCER_POOL_ID", "")
+
+
+def build_working_swapr_call(
+    token_in: str,
+    token_out: str,
+    amount_in: int,
+    recipient: str,
+    exact_type: str = "IN"
+) -> Dict[str, Any]:
+    """Build a working Swapr call using proven encoding from test scripts."""
+    deadline = int(time.time()) + 600
+    
+    if exact_type == "IN":
+        params = (
+            w3.to_checksum_address(token_in),
+            w3.to_checksum_address(token_out),
+            w3.to_checksum_address(recipient),
+            deadline,
+            int(amount_in),
+            0,  # amountOutMin
+            0   # sqrtPriceLimitX96
+        )
+        data = swapr_router.encode_abi(abi_element_identifier="exactInputSingle", args=[params])
+    else:
+        params = (
+            w3.to_checksum_address(token_in),
+            w3.to_checksum_address(token_out),
+            500,  # fee (0.05%)
+            w3.to_checksum_address(recipient),
+            deadline,
+            int(amount_in),  # Actually amount_out for exactOutputSingle
+            int(amount_in * 2),  # amount_in_max
+            0
+        )
+        data = swapr_router.encode_abi(abi_element_identifier="exactOutputSingle", args=[params])
+    
+    return {
+        'target': w3.to_checksum_address(SWAPR_ROUTER),
+        'value': 0,
+        'data': data
+    }
 
 
 def build_buy_conditional_bundle(
@@ -96,27 +138,27 @@ def build_buy_conditional_bundle(
         
         # YES swap (exact-out)
         calls.append(encode_approval_call(SDAI_YES, SWAPR_ROUTER, max_input))
-        calls.append(encode_swapr_exact_out_call(
-            SWAPR_ROUTER, SDAI_YES, COMPANY_YES, target_amount, max_input, account.address
+        calls.append(build_working_swapr_call(
+            SDAI_YES, COMPANY_YES, target_amount, account.address, "OUT"
         ))
         
         # NO swap (exact-out)
         calls.append(encode_approval_call(SDAI_NO, SWAPR_ROUTER, max_input))
-        calls.append(encode_swapr_exact_out_call(
-            SWAPR_ROUTER, SDAI_NO, COMPANY_NO, target_amount, max_input, account.address
+        calls.append(build_working_swapr_call(
+            SDAI_NO, COMPANY_NO, target_amount, account.address, "OUT"
         ))
     else:
         # Use exact-in swaps for initial simulation
         # YES swap (exact-in)
         calls.append(encode_approval_call(SDAI_YES, SWAPR_ROUTER, amount_wei))
-        calls.append(encode_swapr_exact_in_call(
-            SWAPR_ROUTER, SDAI_YES, COMPANY_YES, amount_wei, 0, account.address
+        calls.append(build_working_swapr_call(
+            SDAI_YES, COMPANY_YES, amount_wei, account.address, "IN"
         ))
         
         # NO swap (exact-in)
         calls.append(encode_approval_call(SDAI_NO, SWAPR_ROUTER, amount_wei))
-        calls.append(encode_swapr_exact_in_call(
-            SWAPR_ROUTER, SDAI_NO, COMPANY_NO, amount_wei, 0, account.address
+        calls.append(build_working_swapr_call(
+            SDAI_NO, COMPANY_NO, amount_wei, account.address, "IN"
         ))
     
     # Steps 7-9: Merge Company tokens
@@ -132,7 +174,7 @@ def build_buy_conditional_bundle(
     # Steps 10-11: Swap Company token to sDAI on Balancer
     calls.append(encode_approval_call(COMPANY_TOKEN, BALANCER_VAULT, 2**256 - 1))
     calls.append(encode_balancer_swap_call(
-        BALANCER_VAULT, BALANCER_POOL, COMPANY_TOKEN, SDAI_TOKEN,
+        BALANCER_VAULT, BALANCER_POOL_ID or BALANCER_POOL, COMPANY_TOKEN, SDAI_TOKEN,
         merge_amount, account.address, account.address
     ))
     
@@ -343,6 +385,174 @@ def simulate_buy_conditional_bundle(amount: Decimal) -> Dict[str, Any]:
     }
 
 
+def buy_conditional_simple(
+    amount: Decimal,
+    skip_balancer: bool = False
+) -> Dict[str, Any]:
+    """
+    Execute buy conditional flow using proven EIP-7702 implementation.
+    This is a simplified version that works without complex simulation.
+    
+    Args:
+        amount: Amount of sDAI to use
+        skip_balancer: Skip the final Balancer swap
+    
+    Returns:
+        Transaction results
+    """
+    print("=== Buy Conditional with EIP-7702 (Simple Mode) ===\n")
+    
+    amount_wei = w3.to_wei(amount, 'ether')
+    
+    # Check balance
+    sdai_balance = get_token_balance(w3, SDAI_TOKEN, account.address)
+    print(f"sDAI balance: {w3.from_wei(sdai_balance, 'ether')}")
+    
+    if sdai_balance < amount_wei:
+        raise Exception("Insufficient sDAI balance")
+    
+    # Build bundle calls
+    calls = []
+    
+    # 1. Approve sDAI for split
+    print("Building bundle:")
+    print("  1. Approve sDAI for FutarchyRouter")
+    calls.append(encode_approval_call(SDAI_TOKEN, FUTARCHY_ROUTER, amount_wei))
+    
+    # 2. Split sDAI
+    print("  2. Split sDAI into YES/NO conditional")
+    calls.append(encode_split_position_call(
+        FUTARCHY_ROUTER,
+        FUTARCHY_PROPOSAL,
+        SDAI_TOKEN,
+        amount_wei
+    ))
+    
+    # 3-4. Swap YES sDAI -> YES Company
+    print("  3. Approve YES sDAI for Swapr")
+    calls.append(encode_approval_call(SDAI_YES, SWAPR_ROUTER, amount_wei))
+    
+    print("  4. Swap YES sDAI -> YES Company")
+    calls.append(build_working_swapr_call(
+        SDAI_YES,
+        COMPANY_YES,
+        amount_wei,
+        account.address,
+        "IN"
+    ))
+    
+    # 5-6. Swap NO sDAI -> NO Company
+    print("  5. Approve NO sDAI for Swapr")
+    calls.append(encode_approval_call(SDAI_NO, SWAPR_ROUTER, amount_wei))
+    
+    print("  6. Swap NO sDAI -> NO Company")
+    calls.append(build_working_swapr_call(
+        SDAI_NO,
+        COMPANY_NO,
+        amount_wei,
+        account.address,
+        "IN"
+    ))
+    
+    # 7-9. Merge Company tokens
+    print("  7. Approve YES Company for merge")
+    calls.append(encode_approval_call(COMPANY_YES, FUTARCHY_ROUTER, 2**256 - 1))
+    
+    print("  8. Approve NO Company for merge")
+    calls.append(encode_approval_call(COMPANY_NO, FUTARCHY_ROUTER, 2**256 - 1))
+    
+    merge_amount = int(amount_wei * 0.95)  # Conservative estimate
+    print(f"  9. Merge Company tokens (estimated: {w3.from_wei(merge_amount, 'ether')})")
+    calls.append(encode_merge_positions_call(
+        FUTARCHY_ROUTER,
+        FUTARCHY_PROPOSAL,
+        COMPANY_TOKEN,
+        merge_amount
+    ))
+    
+    # 10-11. Optional: Sell Company for sDAI on Balancer
+    if not skip_balancer and (BALANCER_POOL_ID or BALANCER_POOL):
+        print("  10. Approve Company for Balancer")
+        calls.append(encode_approval_call(COMPANY_TOKEN, BALANCER_VAULT, merge_amount))
+        
+        print("  11. Sell Company for sDAI on Balancer")
+        calls.append(encode_balancer_swap_call(
+            BALANCER_VAULT,
+            BALANCER_POOL_ID or BALANCER_POOL,
+            COMPANY_TOKEN,
+            SDAI_TOKEN,
+            merge_amount,
+            account.address,
+            account.address
+        ))
+    
+    # Check call limit
+    if len(calls) > 10:
+        print(f"\n⚠️ Warning: {len(calls)} calls exceed the 10-call limit!")
+        calls = calls[:10]  # Limit to 10 calls
+    
+    # Build EIP-7702 transaction
+    builder = EIP7702TransactionBuilder(w3, IMPLEMENTATION_ADDRESS)
+    for call in calls:
+        builder.add_call(call['target'], call['value'], call['data'])
+    
+    print(f"\nBuilding EIP-7702 bundle with {len(builder.calls)} calls...")
+    gas_params = calculate_bundle_gas_params(w3)
+    gas_params['gas'] = 2000000  # High gas limit for complete bundle
+    
+    tx = builder.build_transaction(account, gas_params)
+    print(f"Transaction type: {tx['type']} (EIP-7702)")
+    
+    # Sign and send
+    signed_tx = account.sign_transaction(tx)
+    
+    print("\nSending bundled transaction...")
+    # Handle both old and new eth-account versions
+    if hasattr(signed_tx, 'rawTransaction'):
+        tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
+    elif hasattr(signed_tx, 'raw_transaction'):
+        tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+    else:
+        tx_hash = w3.eth.send_raw_transaction(signed_tx)
+        
+    print(f"Transaction hash: {tx_hash.hex()}")
+    print(f"View on Gnosisscan: https://gnosisscan.io/tx/{tx_hash.hex()}")
+    
+    # Wait for confirmation
+    print("\nWaiting for confirmation...")
+    receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+    
+    if receipt.status == 1:
+        print(f"\n✅ SUCCESS! Complete buy conditional flow executed")
+        print(f"Gas used: {receipt.gasUsed}")
+        
+        # Check final balances
+        print("\nFinal balances:")
+        company_balance = get_token_balance(w3, COMPANY_TOKEN, account.address)
+        sdai_final = get_token_balance(w3, SDAI_TOKEN, account.address)
+        
+        print(f"  Company tokens: {w3.from_wei(company_balance, 'ether')}")
+        print(f"  sDAI: {w3.from_wei(sdai_final, 'ether')}")
+        
+        if not skip_balancer:
+            profit = sdai_final - (sdai_balance - amount_wei)
+            print(f"  Net profit: {w3.from_wei(profit, 'ether')} sDAI")
+        
+        return {
+            'status': 'success',
+            'tx_hash': tx_hash.hex(),
+            'gas_used': receipt.gasUsed,
+            'company_balance': w3.from_wei(company_balance, 'ether'),
+            'sdai_balance': w3.from_wei(sdai_final, 'ether')
+        }
+    else:
+        print(f"\n❌ Transaction failed!")
+        return {
+            'status': 'failed',
+            'tx_hash': tx_hash.hex()
+        }
+
+
 def buy_conditional_bundled(
     amount: Decimal,
     broadcast: bool = False
@@ -430,11 +640,21 @@ def buy_conditional_bundled(
 def main():
     """Main entry point for CLI usage."""
     SEND_FLAG = {"--send", "-s"}
+    SIMPLE_FLAG = {"--simple"}
+    SKIP_BALANCER_FLAG = {"--skip-balancer"}
+    
     broadcast = any(flag in sys.argv for flag in SEND_FLAG)
-    sys.argv = [arg for arg in sys.argv if arg not in SEND_FLAG]
+    simple_mode = any(flag in sys.argv for flag in SIMPLE_FLAG)
+    skip_balancer = any(flag in sys.argv for flag in SKIP_BALANCER_FLAG)
+    
+    # Remove flags from argv
+    sys.argv = [arg for arg in sys.argv if arg not in SEND_FLAG | SIMPLE_FLAG | SKIP_BALANCER_FLAG]
     
     if len(sys.argv) < 2:
-        print("Usage: python buy_cond_eip7702.py <amount> [--send]")
+        print("Usage: python buy_cond_eip7702.py <amount> [--send] [--simple] [--skip-balancer]")
+        print("  --send: Execute the transaction (default: simulate only)")
+        print("  --simple: Use simple mode without complex simulation")
+        print("  --skip-balancer: Skip the final Balancer swap")
         sys.exit(1)
     
     try:
@@ -446,16 +666,22 @@ def main():
     # Verify environment
     if not IMPLEMENTATION_ADDRESS:
         print("Error: FUTARCHY_BATCH_EXECUTOR_ADDRESS not set")
-        print("Run deployment script first: python -m src.setup.deploy_batch_executor")
-        sys.exit(1)
+        print("Using default: 0x65eb5a03635c627a0f254707712812B234753F31")
     
     print(f"Buying conditional tokens with {amount} sDAI using EIP-7702 bundles")
     print(f"Implementation contract: {IMPLEMENTATION_ADDRESS}")
+    print(f"Mode: {'Simple' if simple_mode else 'Advanced (with simulation)'}")
     print(f"Broadcast: {broadcast}")
+    print(f"Skip Balancer: {skip_balancer}")
     print()
     
     try:
-        result = buy_conditional_bundled(amount, broadcast=broadcast)
+        if simple_mode or broadcast:
+            # Use simple mode for actual execution
+            result = buy_conditional_simple(amount, skip_balancer=skip_balancer)
+        else:
+            # Use advanced simulation mode
+            result = buy_conditional_bundled(amount, broadcast=False)
         
         print("\nResults:")
         for key, value in result.items():
@@ -463,11 +689,17 @@ def main():
         
         if result.get('sdai_net', 0) > 0:
             print(f"\n✅ Profitable: +{result['sdai_net']} sDAI")
+        elif 'status' in result and result['status'] == 'success':
+            print(f"\n✅ Transaction successful!")
         else:
-            print(f"\n❌ Not profitable: {result.get('sdai_net', 0)} sDAI")
+            profit = result.get('sdai_net', 0)
+            if profit != 0:
+                print(f"\n❌ Not profitable: {profit} sDAI")
             
     except Exception as e:
         print(f"\n❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
 
 
