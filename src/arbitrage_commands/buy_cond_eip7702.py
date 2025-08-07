@@ -515,8 +515,8 @@ def buy_conditional_simple(
     else:
         tx_hash = w3.eth.send_raw_transaction(signed_tx)
         
-    print(f"Transaction hash: {tx_hash.hex()}")
-    print(f"View on Gnosisscan: https://gnosisscan.io/tx/{tx_hash.hex()}")
+    print(f"Transaction hash: 0x{tx_hash.hex()}")
+    print(f"View on Gnosisscan: https://gnosisscan.io/tx/0x{tx_hash.hex()}")
     
     # Wait for confirmation
     print("\nWaiting for confirmation...")
