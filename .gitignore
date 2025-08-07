@@ -24,6 +24,7 @@ verify_key.py
 
 # Debug files
 .debug/
+.temp/
 
 # Additional Python virtual environments
 eip7702_env/
