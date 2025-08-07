@@ -273,10 +273,14 @@ def execute_arbitrage(
         elif action == 'sell':
             # Buy Company on Balancer and sell conditional tokens
             print(f"Executing SELL conditional with {amount} sDAI")
+            # Skip merge to stay within 10-operation limit
+            # This leaves us with conditional sDAI that can be merged later
             result = sell_conditional_simple(
                 amount_sdai=amount,
-                skip_merge=False  # Include merge operation
+                skip_merge=True  # Skip merge to stay within 10 ops
             )
+            if result.get('status') == 'success':
+                print("Note: Conditional sDAI tokens held (merge skipped for 10-op limit)")
         else:
             raise ValueError(f"Unknown action: {action}")
         
