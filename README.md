@@ -4,7 +4,11 @@
 
 This is a futarchy arbitrage bot for Gnosis Chain that monitors price discrepancies between Balancer pools and Swapr pools to execute profitable trades. The bot trades conditional Company tokens (YES/NO tokens) against sDAI when prices diverge from the synthetic "ideal" price.
 
-A multicall based version is being currently developed.
+### Features
+- **Sequential Trading**: Traditional multi-transaction arbitrage execution
+- **EIP-7702 Atomic Trading**: Execute complete arbitrage flows in a single atomic transaction using Pectra bundled transactions
+- **Price Monitoring**: Real-time monitoring of Swapr and Balancer pools
+- **Automated Arbitrage**: Automatic execution when profitable opportunities are detected
 
 ## Environment Setup
 
@@ -24,15 +28,34 @@ source venv/bin/activate
 ```
 
 ### Running the Arbitrage Bot
+
+#### EIP-7702 Atomic Bot (Recommended)
+```bash
+# Run the EIP-7702 bot with atomic execution
+source futarchy_env/bin/activate && source .env.0x<PROPOSAL_ADDRESS> && python -m src.arbitrage_commands.eip7702_bot \
+    --amount 0.1 \
+    --interval 120 \
+    --tolerance 0.02
+
+# Dry run mode for testing
+source futarchy_env/bin/activate && source .env.0x<PROPOSAL_ADDRESS> && python -m src.arbitrage_commands.eip7702_bot \
+    --amount 0.001 \
+    --interval 30 \
+    --tolerance 0.01 \
+    --dry-run \
+    --max-iterations 5
+```
+
+#### Sequential Bots (Legacy)
 ```bash
 # Basic bot with environment variables
-source futarchy_env/bin/activate && source .env.0x9590dAF4d5cd4009c3F9767C5E7668175cFd37CF && python -m src.arbitrage_commands.simple_bot \
+source futarchy_env/bin/activate && source .env.0x<PROPOSAL_ADDRESS> && python -m src.arbitrage_commands.simple_bot \
     --amount 0.01 \
     --interval 120 \
     --tolerance 0.2
 
 # Side discovery
-source futarchy_env/bin/activate && source .env.0x9590dAF4d5cd4009c3F9767C5E7668175cFd37CF && python -m src.arbitrage_commands.complex_bot \
+source futarchy_env/bin/activate && source .env.0x<PROPOSAL_ADDRESS> && python -m src.arbitrage_commands.complex_bot \
     --amount 0.1 \
     --interval 120 \
     --tolerance 0.04
@@ -90,11 +113,16 @@ python -m src.setup.fetch_market_data --search-addresses
 
 ### Core Structure
 - `src/arbitrage_commands/` - Main trading strategies and bot logic
-  - `simple_bot.py` - Main arbitrage bot that monitors prices and executes trades
+  - `eip7702_bot.py` - EIP-7702 atomic arbitrage bot with bundled transactions
+  - `buy_cond_eip7702.py` - Atomic buy conditional flow using EIP-7702
+  - `sell_cond_eip7702.py` - Atomic sell conditional flow using EIP-7702
+  - `simple_bot.py` - Sequential arbitrage bot that monitors prices and executes trades
   - `complex_bot.py` - Price discovery and side determination
-  - `buy_cond.py`, `sell_cond.py` - Conditional token trading logic
+  - `buy_cond.py`, `sell_cond.py` - Sequential conditional token trading logic
   - `*_onchain.py` - On-chain execution variants
 - `src/helpers/` - Utility functions for price fetching, swapping, and blockchain interaction
+  - `eip7702_builder.py` - EIP-7702 transaction builder for atomic execution
+  - `bundle_helpers.py` - Helper functions for bundled transactions
 - `src/config/` - Configuration management including ABIs, contracts, tokens, and network settings
 - `src/cli/` - Command-line interface dispatcher
 - `src/setup/` - Initial setup utilities for allowances and verification
@@ -170,8 +198,62 @@ The bot integrates with:
 - **Error Handling**: Add descriptive error messages with context
 
 ### Transaction Flow
-The bot uses a simulation-first approach:
+
+#### EIP-7702 Atomic Flow (Recommended)
+The EIP-7702 bot executes all operations atomically:
+1. Monitor prices and detect arbitrage opportunities
+2. Build bundled transaction with all operations (split, swap, merge, Balancer trade)
+3. Execute entire arbitrage atomically in a single transaction
+4. Automatic rollback if any operation fails
+
+**Benefits:**
+- **Atomic Execution**: All-or-nothing execution prevents partial failures
+- **Gas Efficiency**: Single transaction instead of multiple
+- **MEV Protection**: Atomic execution prevents frontrunning between steps
+- **Simplified Logic**: No need for complex simulation and state tracking
+
+#### Sequential Flow (Legacy)
+The sequential bots use a simulation-first approach:
 1. Build transaction bundles as Tenderly-compatible dictionaries
 2. Simulate transactions to calculate optimal parameters
 3. Execute on-chain only after successful simulation
 4. Each transaction has an associated handler function for state tracking
+
+## EIP-7702 Atomic Arbitrage
+
+### Overview
+The EIP-7702 implementation uses Pectra bundled transactions to execute complex DeFi arbitrage atomically. This ensures all operations succeed or fail together, eliminating risks from partial execution.
+
+### Architecture
+- **FutarchyBatchExecutorMinimal**: Deployed at `0x65eb5a03635c627a0f254707712812B234753F31`
+- **Authorization**: EOA temporarily delegates execution to the batch executor contract
+- **Bundle Size**: Supports up to 10 operations per transaction
+
+### Supported Operations
+
+#### Buy Conditional Flow (`buy_cond_eip7702.py`)
+1. Split sDAI into YES/NO conditional sDAI
+2. Swap YES sDAI → YES Company on Swapr
+3. Swap NO sDAI → NO Company on Swapr
+4. Merge YES/NO Company back to Company token
+5. Sell Company for sDAI on Balancer
+
+#### Sell Conditional Flow (`sell_cond_eip7702.py`)
+1. Buy Company with sDAI on Balancer
+2. Split Company into YES/NO conditional Company
+3. Swap YES Company → YES sDAI on Swapr
+4. Swap NO Company → NO sDAI on Swapr
+5. Merge YES/NO sDAI back to regular sDAI
+
+### Usage Examples
+
+```bash
+# Run atomic buy conditional
+python -m src.arbitrage_commands.buy_cond_eip7702 0.1
+
+# Run atomic sell conditional
+python -m src.arbitrage_commands.sell_cond_eip7702 0.1 --skip-merge
+
+# Run monitoring bot with atomic execution
+python -m src.arbitrage_commands.eip7702_bot --amount 0.1 --tolerance 0.02
+```
