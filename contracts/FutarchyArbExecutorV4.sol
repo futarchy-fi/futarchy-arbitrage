@@ -180,6 +180,8 @@ contract FutarchyArbExecutorV4 {
         int256  netCur
     );
     
+    event TradeExecuted(address indexed tokenIn, address indexed tokenOut, uint256 amountIn, uint256 amountOut);
+    
     // ---- 7702 entrypoints kept for compatibility ----
     
     function execute10(
@@ -218,6 +220,13 @@ contract FutarchyArbExecutorV4 {
     
     function runBuy(BuyArgs calldata a) external onlyRunner {
         this.buy_conditional_arbitrage(a);
+    }
+    
+    /// @notice Execute a single execute10 batch (e.g., CUR -> COMP via Balancer) with delta checks.
+    /// @dev External only for the configured runner; internally uses the same self-call pattern as sell/buy flows.
+    function runTrade(Execute10Batch calldata b) external onlyRunner returns (uint256 out) {
+        out = _runExecute10Checked(b, /*overrideAmountIn*/ 0);
+        emit TradeExecuted(b.tokenIn, b.tokenOut, b.amountIn, out);
     }
     
     // ---- Core internal: execute10 runner with delta checks + patching ----
