@@ -23,7 +23,8 @@ interface IPermit2 {
  */
 contract FutarchyArbExecutorV5 {
     /// Uniswap Permit2 (canonical)
-    address internal constant PERMIT2 = 0x000000000022d473030F116dDEE9F6B43aC78BA3;
+    // Checksummed literal required by recent solc versions
+    address internal constant PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
     uint160 internal constant MAX_UINT160 = type(uint160).max;
     uint48  internal constant MAX_UINT48  = type(uint48).max;
 
@@ -116,4 +117,3 @@ contract FutarchyArbExecutorV5 {
 
     receive() external payable {}
 }
-
