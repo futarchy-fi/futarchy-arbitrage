@@ -31,3 +31,9 @@ eip7702_env/
 
 # Claude-specific files
 # .claude/
+
+# Build and deployment artifacts
+build/
+deployments/
+deployment_executor_v5_*.json
+temp/
