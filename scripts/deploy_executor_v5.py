@@ -107,10 +107,6 @@ def deploy(bytecode: str, abi: list) -> tuple[str, dict, str, str]:
     rpc_url = require_env("RPC_URL")
     private_key = require_env("PRIVATE_KEY")
 
-    futarchy_router = require_env("FUTARCHY_ROUTER_ADDRESS")
-    swapr_router = require_env("SWAPR_ROUTER_ADDRESS")
-    proposal = require_env("FUTARCHY_PROPOSAL_ADDRESS")
-
     w3 = Web3(Web3.HTTPProvider(rpc_url))
     if not w3.is_connected():
         raise SystemExit("Failed to connect to RPC_URL")
@@ -125,12 +121,32 @@ def deploy(bytecode: str, abi: list) -> tuple[str, dict, str, str]:
     print(f"Balance: {bal} xDAI")
 
     Contract = w3.eth.contract(abi=abi, bytecode=bytecode)
-    tx = Contract.constructor(futarchy_router, swapr_router, proposal).build_transaction({
-        "from": account.address,
-        "nonce": w3.eth.get_transaction_count(account.address),
-        "gasPrice": w3.eth.gas_price,
-        "chainId": chain_id,
-    })
+
+    # Detect constructor inputs from ABI
+    ctor_inputs = []
+    for item in abi:
+        if item.get("type") == "constructor":
+            ctor_inputs = item.get("inputs", [])
+            break
+
+    if len(ctor_inputs) == 0:
+        tx = Contract.constructor().build_transaction({
+            "from": account.address,
+            "nonce": w3.eth.get_transaction_count(account.address),
+            "gasPrice": w3.eth.gas_price,
+            "chainId": chain_id,
+        })
+    else:
+        # Backward compatibility with 3-arg constructor
+        futarchy_router = require_env("FUTARCHY_ROUTER_ADDRESS")
+        swapr_router = require_env("SWAPR_ROUTER_ADDRESS")
+        proposal = require_env("FUTARCHY_PROPOSAL_ADDRESS")
+        tx = Contract.constructor(futarchy_router, swapr_router, proposal).build_transaction({
+            "from": account.address,
+            "nonce": w3.eth.get_transaction_count(account.address),
+            "gasPrice": w3.eth.gas_price,
+            "chainId": chain_id,
+        })
 
     # Estimate gas with a buffer
     try:
