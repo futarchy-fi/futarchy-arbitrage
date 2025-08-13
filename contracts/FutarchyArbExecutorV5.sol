@@ -21,6 +21,11 @@ interface ICompositeLike {
     function split(uint256 amount) external;
 }
 
+/// Futarchy router interface used for proper splits
+interface IFutarchyRouter {
+    function splitPosition(address proposal, address token, uint256 amount) external;
+}
+
 /**
  * @title FutarchyArbExecutorV5 (Step 1 & 2 only)
  * @notice Snapshot collateral; ensure approvals (Permit2 + Vault); execute pre-encoded Balancer BatchRouter.swapExactIn.
@@ -108,8 +113,11 @@ contract FutarchyArbExecutorV5 {
         address pred_no_pool,
         uint256 amount_sdai_in
     ) external {
-        // Silence future-step params (reserved)
-        (comp, yes_comp, no_comp, yes_cur, no_cur, yes_pool, no_pool, pred_yes_pool, pred_no_pool, amount_sdai_in);
+        // Treat yes_comp as futarchy_router and no_comp as proposal when provided
+        address futarchy_router = yes_comp;
+        address proposal = no_comp;
+        // Silence still-reserved params
+        (yes_cur, no_cur, yes_pool, no_pool, pred_yes_pool, pred_no_pool, amount_sdai_in);
 
         // --------------------------
         // Step 1: snapshot collateral
@@ -143,13 +151,17 @@ contract FutarchyArbExecutorV5 {
         require(compBalance > 0, "Failed to acquire composite token");
 
         // -----------------------------
-        // Step 4: attempt to split composite (non-fatal)
+        // Step 4: split via FutarchyRouter if provided; else try token-native split (non-fatal)
         // -----------------------------
-        // Many test paths use plain tokens (e.g., GNO) that do not implement split.
-        // Use a low-level call so this step is non-fatal during demos; later flows
-        // can enforce a concrete interface and strict success.
-        (ok, ) = comp.call(abi.encodeWithSelector(ICompositeLike.split.selector, compBalance));
-        emit CompositeSplitAttempted(comp, compBalance, ok);
+        if (futarchy_router != address(0) && proposal != address(0)) {
+            // Approve router and split
+            _ensureMaxAllowance(IERC20(comp), futarchy_router);
+            IFutarchyRouter(futarchy_router).splitPosition(proposal, comp, compBalance);
+        } else {
+            // Fallback: best-effort token-native split
+            (ok, ) = comp.call(abi.encodeWithSelector(ICompositeLike.split.selector, compBalance));
+            emit CompositeSplitAttempted(comp, compBalance, ok);
+        }
     }
 
     receive() external payable {}
