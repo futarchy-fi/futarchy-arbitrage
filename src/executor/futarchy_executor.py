@@ -39,8 +39,8 @@ from dotenv import load_dotenv
 from web3 import Web3
 from eth_account import Account
 
-# Reuse Balancer helpers for encoding swapExactIn calldata
-from src.helpers.balancer_swap import (
+# Reuse Balancer helpers for encoding swapExactIn calldata (module under src/trades)
+from src.trades.balancer_swap import (
     BALANCER_ROUTER_ABI,
     SDAI,
     COMPANY_TOKEN,
@@ -102,6 +102,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--min-out", dest="min_out", default="0", help="Minimum Company token out (ether units)")
     p.add_argument("--force-send", action="store_true", help="Skip gas estimation and force on-chain send")
     p.add_argument("--gas", dest="gas", type=int, default=1_500_000, help="Gas limit when using --force-send (default 1.5M)")
+    p.add_argument("--prefund", action="store_true", help="Transfer --amount-in sDAI from your EOA to the V5 executor before calling")
     return p.parse_args()
 
 
@@ -143,6 +144,26 @@ def _encode_buy_company_ops(w3: Web3, router_addr: str, amount_in_wei: int, min_
     return calldata
 
 
+_ERC20_MIN_ABI = [
+    {
+        "constant": False,
+        "inputs": [{"name": "to", "type": "address"}, {"name": "amount", "type": "uint256"}],
+        "name": "transfer",
+        "outputs": [{"name": "", "type": "bool"}],
+        "stateMutability": "nonpayable",
+        "type": "function",
+    },
+    {
+        "constant": True,
+        "inputs": [{"name": "owner", "type": "address"}],
+        "name": "balanceOf",
+        "outputs": [{"name": "", "type": "uint256"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
+]
+
+
 def _exec_step12_buy(
     w3: Web3,
     account,
@@ -151,7 +172,7 @@ def _exec_step12_buy(
     min_out_eth: str,
     balancer_router: str,
     balancer_vault: Optional[str],
-) -> str:
+    ) -> str:
     abi = _load_v5_abi()
     v5 = w3.eth.contract(address=w3.to_checksum_address(v5_address), abi=abi)
 
@@ -170,6 +191,34 @@ def _exec_step12_buy(
         "gasPrice": w3.eth.gas_price,
         "chainId": w3.eth.chain_id,
     }
+
+    # Prefund the executor with sDAI if requested or if balance is insufficient
+    sdai_addr = os.getenv("SDAI_TOKEN_ADDRESS", SDAI)
+    sdai = w3.eth.contract(address=w3.to_checksum_address(sdai_addr), abi=_ERC20_MIN_ABI)
+    exec_bal = sdai.functions.balanceOf(w3.to_checksum_address(v5_address)).call()
+    if exec_bal < amount_in_wei:
+        missing = amount_in_wei - exec_bal
+        if not getattr(_exec_step12_buy, "prefund_flag", False):
+            raise SystemExit(
+                f"Executor sDAI balance {w3.from_wei(exec_bal, 'ether')} < needed {w3.from_wei(amount_in_wei, 'ether')}. "
+                f"Re-run with --prefund to transfer {w3.from_wei(missing, 'ether')} sDAI to the executor."
+            )
+        fund_tx = sdai.functions.transfer(w3.to_checksum_address(v5_address), missing).build_transaction({
+            "from": account.address,
+            "nonce": tx_params["nonce"],
+            "gasPrice": tx_params["gasPrice"],
+            "chainId": tx_params["chainId"],
+        })
+        try:
+            fund_tx["gas"] = int(w3.eth.estimate_gas(fund_tx) * 1.2)
+        except Exception:
+            fund_tx["gas"] = 150_000
+        signed_fund = account.sign_transaction(fund_tx)
+        raw_fund = getattr(signed_fund, "rawTransaction", None) or getattr(signed_fund, "raw_transaction", None)
+        fund_hash = w3.eth.send_raw_transaction(raw_fund)
+        print(f"Prefund tx: {fund_hash.hex()}")
+        w3.eth.wait_for_transaction_receipt(fund_hash)
+        tx_params["nonce"] += 1
 
     # If caller wants to force-send, provide a gas limit up front to avoid web3's estimation
     if getattr(_exec_step12_buy, "force_send_flag", False):
@@ -241,6 +290,7 @@ def main():
         # plumb force-send flags into helper via attributes to avoid changing signature widely
         _exec_step12_buy.force_send_flag = bool(args.force_send)
         _exec_step12_buy.force_gas_limit = int(args.gas)
+        _exec_step12_buy.prefund_flag = bool(args.prefund)
         _exec_step12_buy(w3, acct, address, args.amount_in, args.min_out, bal_router, bal_vault)
         return
 
