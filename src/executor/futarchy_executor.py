@@ -99,21 +99,9 @@ def parse_args() -> argparse.Namespace:
     # Step1/2 Balancer buy flow
     p.add_argument("--step12", action="store_true", help="Execute Step 1&2 Balancer buy flow via V5")
     p.add_argument("--amount-in", dest="amount_in", default=None, help="Amount of sDAI to spend (ether units)")
-    p.add_argument("--min-out", dest="min_out", default="0", help="Minimum Company token out (ether units)")
     p.add_argument("--force-send", action="store_true", help="Skip gas estimation and force on-chain send")
     p.add_argument("--gas", dest="gas", type=int, default=1_500_000, help="Gas limit when using --force-send (default 1.5M)")
     p.add_argument("--prefund", action="store_true", help="Transfer --amount-in sDAI from your EOA to the V5 executor before calling")
-    # Optional: provide Futarchy Router + Proposal explicitly for split step
-    p.add_argument("--futarchy-router", dest="fut_router", default=None, help="Futarchy Router address for splitPosition")
-    p.add_argument("--proposal", dest="proposal", default=None, help="Futarchy Proposal address for splitPosition")
-    # Swapr Step-5 (optional): sell conditional comps exact-in
-    p.add_argument("--swapr-router", dest="swapr_router", default=None, help="Swapr/Algebra router address for Step 5 sells")
-    p.add_argument("--yes-comp", dest="yes_comp", default=None, help="YES conditional composite token address")
-    p.add_argument("--no-comp",  dest="no_comp",  default=None, help="NO  conditional composite token address")
-    p.add_argument("--yes-cur",  dest="yes_cur",  default=None, help="YES conditional collateral token address")
-    p.add_argument("--no-cur",   dest="no_cur",   default=None, help="NO  conditional collateral token address")
-    p.add_argument("--min-yes-out", dest="min_yes_out", default="0", help="Min YES_cur out (ether units) for Step 5")
-    p.add_argument("--min-no-out",  dest="min_no_out",  default="0", help="Min NO_cur out (ether units) for Step 5")
     # Withdraw helpers (requires owner-enabled V5)
     p.add_argument("--withdraw-token", dest="wd_token", default=None, help="ERC20 token address to withdraw from V5")
     p.add_argument("--withdraw-to", dest="wd_to", default=None, help="Recipient address (defaults to your EOA)")
@@ -145,14 +133,15 @@ def _load_v5_abi() -> list:
     raise SystemExit("Could not load V5 ABI from deployments/ or build/. Please deploy V5 first.")
 
 
-def _encode_buy_company_ops(w3: Web3, router_addr: str, amount_in_wei: int, min_out_wei: int) -> str:
+def _encode_buy_company_ops(w3: Web3, router_addr: str, amount_in_wei: int) -> str:
     """Encode Balancer BatchRouter.swapExactIn calldata for buying Company with sDAI."""
     router = w3.eth.contract(address=w3.to_checksum_address(router_addr), abi=BALANCER_ROUTER_ABI)
     steps = [
         (FINAL_POOL, BUFFER_POOL, False),  # sDAI -> buffer
         (BUFFER_POOL, COMPANY_TOKEN, True),  # buffer -> Company
     ]
-    path = (SDAI, steps, int(amount_in_wei), int(min_out_wei))
+    # No minOut protection by request: set to 0
+    path = (SDAI, steps, int(amount_in_wei), 0)
     # web3.py v6: encode function calldata via ContractFunction
     calldata: str = router.get_function_by_name("swapExactIn")(
         [path], int(MAX_DEADLINE), False, b""
@@ -185,34 +174,28 @@ def _exec_step12_buy(
     account,
     v5_address: str,
     amount_in_eth: str,
-    min_out_eth: str,
-    balancer_router: str,
-    balancer_vault: Optional[str],
-    *,
-    fut_router: Optional[str] = None,
-    proposal: Optional[str] = None,
-    swapr_router: Optional[str] = None,
-    yes_comp: Optional[str] = None,
-    no_comp: Optional[str] = None,
-    yes_cur: Optional[str] = None,
-    no_cur: Optional[str] = None,
-    min_yes_out_eth: str = "0",
-    min_no_out_eth: str = "0",
     ) -> str:
     abi = _load_v5_abi()
     v5 = w3.eth.contract(address=w3.to_checksum_address(v5_address), abi=abi)
 
     amount_in_wei = w3.to_wei(Decimal(str(amount_in_eth)), "ether")
-    min_out_wei = w3.to_wei(Decimal(str(min_out_eth)), "ether")
-    buy_ops = _encode_buy_company_ops(w3, balancer_router, amount_in_wei, min_out_wei)
+    # Resolve required addresses strictly from env
+    balancer_router = require_env("BALANCER_ROUTER_ADDRESS")
+    balancer_vault  = os.getenv("BALANCER_VAULT_ADDRESS") or os.getenv("BALANCER_VAULT_V3_ADDRESS")
+    fut_router      = require_env("FUTARCHY_ROUTER_ADDRESS")
+    proposal        = require_env("FUTARCHY_PROPOSAL_ADDRESS")
+    swapr_router    = require_env("SWAPR_ROUTER_ADDRESS")
+    yes_comp        = require_env("SWAPR_GNO_YES_ADDRESS")
+    no_comp         = require_env("SWAPR_GNO_NO_ADDRESS")
+    yes_cur         = require_env("SWAPR_SDAI_YES_ADDRESS")
+    no_cur          = require_env("SWAPR_SDAI_NO_ADDRESS")
+
+    buy_ops = _encode_buy_company_ops(w3, balancer_router, amount_in_wei)
 
     comp = os.getenv("COMPANY_TOKEN_ADDRESS", COMPANY_TOKEN)
     cur = os.getenv("SDAI_TOKEN_ADDRESS", SDAI)
-    # allow CLI to override env
-    fut_router = fut_router or os.getenv("FUTARCHY_ROUTER_ADDRESS")
-    proposal   = proposal   or os.getenv("FUTARCHY_PROPOSAL_ADDRESS")
     zero = Web3.to_checksum_address("0x0000000000000000000000000000000000000000")
-    vault = balancer_vault or os.getenv("BALANCER_VAULT_ADDRESS") or os.getenv("BALANCER_VAULT_V3_ADDRESS") or zero
+    vault = balancer_vault or zero
 
     tx_params = {
         "from": account.address,
@@ -253,54 +236,22 @@ def _exec_step12_buy(
     if getattr(_exec_step12_buy, "force_send_flag", False):
         tx_params["gas"] = getattr(_exec_step12_buy, "force_gas_limit", 1_500_000)
 
-    # Try to fill missing Swapr params from env if not provided via CLI
-    env_swapr_router = os.getenv("SWAPR_ROUTER_ADDRESS") or os.getenv("ALGEBRA_ROUTER_ADDRESS")
-    env_yes_comp = os.getenv("SWAPR_GNO_YES_ADDRESS")
-    env_no_comp  = os.getenv("SWAPR_GNO_NO_ADDRESS")
-    env_yes_cur  = os.getenv("SWAPR_SDAI_YES_ADDRESS")
-    env_no_cur   = os.getenv("SWAPR_SDAI_NO_ADDRESS")
-
-    swapr_router = swapr_router or env_swapr_router
-    yes_comp = yes_comp or env_yes_comp
-    no_comp  = no_comp  or env_no_comp
-    yes_cur  = yes_cur  or env_yes_cur
-    no_cur   = no_cur   or env_no_cur
-
-    # Branch: if Swapr details present, call the extended overload and execute Step 5
-    if all([swapr_router, yes_comp, no_comp, yes_cur, no_cur]):
-        min_yes_out_wei = w3.to_wei(Decimal(str(min_yes_out_eth)), "ether")
-        min_no_out_wei  = w3.to_wei(Decimal(str(min_no_out_eth)),  "ether")
-        tx = v5.functions.sell_conditional_arbitrage_balancer(
-            buy_ops,
-            Web3.to_checksum_address(balancer_router),
-            Web3.to_checksum_address(vault) if isinstance(vault, str) else vault,
-            Web3.to_checksum_address(comp),
-            Web3.to_checksum_address(cur),
-            Web3.to_checksum_address(fut_router) if fut_router else zero,
-            Web3.to_checksum_address(proposal)   if proposal   else zero,
-            Web3.to_checksum_address(yes_comp),
-            Web3.to_checksum_address(no_comp),
-            Web3.to_checksum_address(yes_cur),
-            Web3.to_checksum_address(no_cur),
-            Web3.to_checksum_address(swapr_router),
-            int(min_yes_out_wei),
-            int(min_no_out_wei),
-            0,
-        ).build_transaction(tx_params)
-    else:
-        # Legacy 14-arg path (Step 1–4 only). For back-compat we keep the old mapping:
-        # yes_comp=no futarchy router, no_comp=proposal, rest reserved.
-        tx = v5.functions.sell_conditional_arbitrage_balancer(
-            buy_ops,
-            Web3.to_checksum_address(balancer_router),
-            Web3.to_checksum_address(vault) if isinstance(vault, str) else vault,
-            Web3.to_checksum_address(comp),
-            Web3.to_checksum_address(cur),
-            Web3.to_checksum_address(fut_router) if fut_router else zero,
-            Web3.to_checksum_address(proposal)   if proposal   else zero,
-            zero, zero, zero, zero, zero, zero,
-            0,
-        ).build_transaction(tx_params)
+    # Always call the extended overload (Steps 1–6); addresses come from env
+    tx = v5.functions.sell_conditional_arbitrage_balancer(
+        buy_ops,
+        Web3.to_checksum_address(balancer_router),
+        Web3.to_checksum_address(vault) if isinstance(vault, str) else vault,
+        Web3.to_checksum_address(comp),
+        Web3.to_checksum_address(cur),
+        Web3.to_checksum_address(fut_router),
+        Web3.to_checksum_address(proposal),
+        Web3.to_checksum_address(yes_comp),
+        Web3.to_checksum_address(no_comp),
+        Web3.to_checksum_address(yes_cur),
+        Web3.to_checksum_address(no_cur),
+        Web3.to_checksum_address(swapr_router),
+        0,
+    ).build_transaction(tx_params)
 
     # If we didn't force a gas limit earlier, try to estimate now with a buffer; otherwise keep provided gas
     if "gas" not in tx:
@@ -361,11 +312,7 @@ def _withdraw_token(
 def main():
     args = parse_args()
     load_env(args.env_file)
-    # Allow CLI to override env for futarchy router/proposal
-    if args.fut_router:
-        os.environ["FUTARCHY_ROUTER_ADDRESS"] = args.fut_router
-    if args.proposal:
-        os.environ["FUTARCHY_PROPOSAL_ADDRESS"] = args.proposal
+    # No CLI overrides for addresses; all read from env
 
     rpc_url = require_env("RPC_URL")
     private_key = require_env("PRIVATE_KEY")
@@ -382,6 +329,16 @@ def main():
     print(f"Resolved V5 address: {address} (source: {source_label})")
 
     w3 = Web3(Web3.HTTPProvider(rpc_url))
+    # POA chains (e.g., Gnosis) may require this middleware; harmless elsewhere.
+    try:
+        from web3.middleware import geth_poa_middleware
+        w3.middleware_onion.inject(geth_poa_middleware, layer=0)
+    except Exception:
+        try:
+            from web3.middleware import ExtraDataToPOAMiddleware
+            w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
+        except Exception:
+            pass
     if not w3.is_connected():
         raise SystemExit("Failed to connect to RPC_URL")
 
@@ -393,20 +350,11 @@ def main():
     if args.step12:
         if not args.amount_in:
             raise SystemExit("--amount-in is required with --step12 (ether units)")
-        bal_router = require_env("BALANCER_ROUTER_ADDRESS")
-        bal_vault = os.getenv("BALANCER_VAULT_ADDRESS") or os.getenv("BALANCER_VAULT_V3_ADDRESS")
         # plumb force-send flags into helper via attributes to avoid changing signature widely
         _exec_step12_buy.force_send_flag = bool(args.force_send)
         _exec_step12_buy.force_gas_limit = int(args.gas)
         _exec_step12_buy.prefund_flag = bool(args.prefund)
-        _exec_step12_buy(
-            w3, acct, address, args.amount_in, args.min_out, bal_router, bal_vault,
-            fut_router=args.fut_router, proposal=args.proposal,
-            swapr_router=args.swapr_router,
-            yes_comp=args.yes_comp, no_comp=args.no_comp,
-            yes_cur=args.yes_cur,   no_cur=args.no_cur,
-            min_yes_out_eth=args.min_yes_out, min_no_out_eth=args.min_no_out,
-        )
+        _exec_step12_buy(w3, acct, address, args.amount_in)
         return
 
     # Withdraw flow (requires owner-enabled V5; redeploy if your V5 has no owner)
