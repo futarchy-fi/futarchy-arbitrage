@@ -53,31 +53,39 @@ def compile_with_solc() -> dict:
     DEPLOYMENTS_DIR.mkdir(parents=True, exist_ok=True)
 
     # Produce build artifacts (abi/bin) in build/ as requested
-    run([
-        "solc",
-        "--via-ir",
-        "--abi",
-        "--bin",
-        str(CONTRACT_SRC_PATH),
-        "--optimize",
-        "--optimize-runs",
-        "200",
-        "-o",
-        str(BUILD_DIR),
-        "--overwrite",
-    ])
+    try:
+        run([
+            "solc",
+            "--via-ir",
+            "--abi",
+            "--bin",
+            str(CONTRACT_SRC_PATH),
+            "--optimize",
+            "--optimize-runs",
+            "200",
+            "-o",
+            str(BUILD_DIR),
+            "--overwrite",
+        ])
+    except subprocess.CalledProcessError as e:
+        print("solc abi/bin compile failed:\n" + (e.stderr or ""))
+        raise
 
     # Also get a stable combined-json for deployment + verification
-    combined = run([
-        "solc",
-        "--via-ir",
-        "--optimize",
-        "--optimize-runs",
-        "200",
-        "--combined-json",
-        "abi,bin,metadata,srcmap",
-        str(CONTRACT_SRC_PATH),
-    ]).stdout
+    try:
+        combined = run([
+            "solc",
+            "--via-ir",
+            "--optimize",
+            "--optimize-runs",
+            "200",
+            "--combined-json",
+            "abi,bin,metadata,srcmap",
+            str(CONTRACT_SRC_PATH),
+        ]).stdout
+    except subprocess.CalledProcessError as e:
+        print("solc combined-json failed:\n" + (e.stderr or ""))
+        raise
 
     combined_json = json.loads(combined)
     return combined_json
