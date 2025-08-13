@@ -103,6 +103,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--force-send", action="store_true", help="Skip gas estimation and force on-chain send")
     p.add_argument("--gas", dest="gas", type=int, default=1_500_000, help="Gas limit when using --force-send (default 1.5M)")
     p.add_argument("--prefund", action="store_true", help="Transfer --amount-in sDAI from your EOA to the V5 executor before calling")
+    # Withdraw helpers (requires owner-enabled V5)
+    p.add_argument("--withdraw-token", dest="wd_token", default=None, help="ERC20 token address to withdraw from V5")
+    p.add_argument("--withdraw-to", dest="wd_to", default=None, help="Recipient address (defaults to your EOA)")
+    p.add_argument("--withdraw-amount", dest="wd_amount", default=None, help="Amount in ether units (assumes 18 decimals)")
+    p.add_argument("--withdraw-amount-wei", dest="wd_amount_wei", default=None, help="Amount in wei (overrides --withdraw-amount)")
     return p.parse_args()
 
 
@@ -255,6 +260,41 @@ def _exec_step12_buy(
     return txh0x
 
 
+def _withdraw_token(
+    w3: Web3,
+    account,
+    v5_address: str,
+    token: str,
+    to_addr: str,
+    amount_wei: int,
+) -> str:
+    abi = _load_v5_abi()
+    v5 = w3.eth.contract(address=w3.to_checksum_address(v5_address), abi=abi)
+    tx = v5.functions.withdrawToken(
+        Web3.to_checksum_address(token), Web3.to_checksum_address(to_addr), int(amount_wei)
+    ).build_transaction({
+        "from": account.address,
+        "nonce": w3.eth.get_transaction_count(account.address),
+        "gasPrice": w3.eth.gas_price,
+        "chainId": w3.eth.chain_id,
+    })
+    try:
+        tx["gas"] = int(w3.eth.estimate_gas(tx) * 1.2)
+    except Exception:
+        tx["gas"] = 200_000
+    signed = account.sign_transaction(tx)
+    raw = getattr(signed, "rawTransaction", None) or getattr(signed, "raw_transaction", None)
+    h = w3.eth.send_raw_transaction(raw)
+    txh = h.hex()
+    txh0x = txh if txh.startswith("0x") else f"0x{txh}"
+    print(f"Withdraw tx: {txh0x}")
+    print(f"GnosisScan:  https://gnosisscan.io/tx/{txh0x}")
+    print(f"Blockscout: https://gnosis.blockscout.com/tx/{txh0x}")
+    receipt = w3.eth.wait_for_transaction_receipt(h)
+    print(f"Success: {receipt.status == 1}; Gas used: {receipt.gasUsed}")
+    return txh0x
+
+
 def main():
     args = parse_args()
     load_env(args.env_file)
@@ -292,6 +332,19 @@ def main():
         _exec_step12_buy.force_gas_limit = int(args.gas)
         _exec_step12_buy.prefund_flag = bool(args.prefund)
         _exec_step12_buy(w3, acct, address, args.amount_in, args.min_out, bal_router, bal_vault)
+        return
+
+    # Withdraw flow (requires owner-enabled V5; redeploy if your V5 has no owner)
+    if args.wd_token:
+        to_addr = args.wd_to or acct.address
+        if args.wd_amount_wei is not None:
+            amount_wei = int(args.wd_amount_wei)
+        elif args.wd_amount is not None:
+            # assumes 18 decimals token like sDAI/GNO
+            amount_wei = w3.to_wei(Decimal(str(args.wd_amount)), "ether")
+        else:
+            raise SystemExit("Provide --withdraw-amount or --withdraw-amount-wei")
+        _withdraw_token(w3, acct, address, args.wd_token, to_addr, amount_wei)
         return
 
     # Default: simple receive() call

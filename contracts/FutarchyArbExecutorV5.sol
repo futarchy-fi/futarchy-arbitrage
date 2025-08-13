@@ -8,6 +8,7 @@ interface IERC20 {
     function balanceOf(address) external view returns (uint256);
     function approve(address spender, uint256 amount) external returns (bool);
     function allowance(address owner, address spender) external view returns (uint256);
+    function transfer(address to, uint256 amount) external returns (bool);
 }
 
 interface IPermit2 {
@@ -27,6 +28,19 @@ interface ICompositeLike {
  *      Contract must already custody the input collateral `cur` (e.g., sDAI).
  */
 contract FutarchyArbExecutorV5 {
+    // --- Ownership ---
+    address public owner;
+    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "not owner");
+        _;
+    }
+
+    constructor() {
+        owner = msg.sender;
+        emit OwnershipTransferred(address(0), msg.sender);
+    }
     /// Uniswap Permit2 (canonical)
     // Checksummed literal required by recent solc versions
     address internal constant PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
@@ -139,4 +153,28 @@ contract FutarchyArbExecutorV5 {
     }
 
     receive() external payable {}
+
+    // --- Owner withdrawals ---
+    function withdrawToken(IERC20 token, address to, uint256 amount) external onlyOwner {
+        require(to != address(0), "to=0");
+        require(token.transfer(to, amount), "transfer failed");
+    }
+
+    function sweepToken(IERC20 token, address to) external onlyOwner {
+        require(to != address(0), "to=0");
+        uint256 bal = token.balanceOf(address(this));
+        require(token.transfer(to, bal), "transfer failed");
+    }
+
+    function withdrawETH(address payable to, uint256 amount) external onlyOwner {
+        require(to != address(0), "to=0");
+        (bool ok, ) = to.call{value: amount}("");
+        require(ok, "eth send failed");
+    }
+
+    function transferOwnership(address newOwner) external onlyOwner {
+        require(newOwner != address(0), "newOwner=0");
+        emit OwnershipTransferred(owner, newOwner);
+        owner = newOwner;
+    }
 }
