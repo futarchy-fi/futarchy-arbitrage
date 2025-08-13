@@ -91,6 +91,7 @@ contract FutarchyArbExecutorV5 {
         address indexed collateral,
         uint256 amount
     );
+    event ProfitVerified(uint256 initialBalance, uint256 finalBalance, uint256 minProfit);
 
     /// Idempotent ERC20 max-approval (resets to 0 first if needed)
     function _ensureMaxAllowance(IERC20 token, address spender) internal {
@@ -239,7 +240,8 @@ contract FutarchyArbExecutorV5 {
         address yes_cur,
         address no_cur,
         address swapr_router,
-        uint256 amount_sdai_in
+        uint256 amount_sdai_in,
+        uint256 min_profit
     ) external {
         // Silence unused param (forward-compat)
         (amount_sdai_in);
@@ -295,7 +297,21 @@ contract FutarchyArbExecutorV5 {
                 emit ConditionalCollateralMerged(futarchy_router, proposal, cur, mergeAmt);
             }
         }
-        // Steps 7–8 intentionally left for follow-up (pred market legs, profit check).
+
+        // --- Step 7: Sell any remaining single-sided conditional collateral to base collateral on Swapr ---
+        // After merging min(yes_cur, no_cur), at most one side should remain > 0.
+        uint256 yesCurLeft = IERC20(yes_cur).balanceOf(address(this));
+        uint256 noCurLeft  = IERC20(no_cur).balanceOf(address(this));
+        if (yesCurLeft > 0) {
+            _swaprExactIn(swapr_router, yes_cur, cur, yesCurLeft, 0);
+        } else if (noCurLeft > 0) {
+            _swaprExactIn(swapr_router, no_cur,  cur, noCurLeft,  0);
+        }
+
+        // --- Step 8: On-chain profit check in base collateral terms ---
+        uint256 final_cur_balance = IERC20(cur).balanceOf(address(this));
+        require(final_cur_balance >= initial_cur_balance + min_profit, "min profit not met");
+        emit ProfitVerified(initial_cur_balance, final_cur_balance, min_profit);
     }
 
     receive() external payable {}
