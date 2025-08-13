@@ -91,6 +91,29 @@ def require_env(name: str) -> str:
     return v
 
 
+def _eip1559_fees(w3: Web3) -> dict:
+    """Return a dict of fee fields for EIP-1559 txs with a minimal, consistent tip.
+
+    - On EIP-1559 chains: sets maxPriorityFeePerGas to PRIORITY_FEE_WEI (default 1 wei)
+      and maxFeePerGas = baseFee * MAX_FEE_MULTIPLIER + priority.
+    - On non-EIP-1559 chains: returns legacy gasPrice bumped by MIN_GAS_PRICE_BUMP_WEI (default 1 wei).
+    """
+    try:
+        latest = w3.eth.get_block("latest")
+        base_fee = latest.get("baseFeePerGas")
+    except Exception:
+        base_fee = None
+    if base_fee is not None:
+        tip = int(os.getenv("PRIORITY_FEE_WEI", "1"))
+        mult = int(os.getenv("MAX_FEE_MULTIPLIER", "2"))
+        max_fee = int(base_fee) * mult + tip
+        return {"maxFeePerGas": int(max_fee), "maxPriorityFeePerGas": int(tip)}
+    else:
+        gas_price = int(w3.eth.gas_price)
+        bump = int(os.getenv("MIN_GAS_PRICE_BUMP_WEI", "1"))
+        return {"gasPrice": gas_price + bump}
+
+
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Call Futarchy V5 contract")
     p.add_argument("--env", dest="env_file", default=None, help="Path to .env file to load")
@@ -203,9 +226,9 @@ def _exec_step12_buy(
     tx_params = {
         "from": account.address,
         "nonce": w3.eth.get_transaction_count(account.address),
-        "gasPrice": w3.eth.gas_price,
         "chainId": w3.eth.chain_id,
     }
+    tx_params.update(_eip1559_fees(w3))
 
     # Prefund the executor with sDAI if requested or if balance is insufficient
     sdai_addr = os.getenv("SDAI_TOKEN_ADDRESS", SDAI)
@@ -221,9 +244,10 @@ def _exec_step12_buy(
         fund_tx = sdai.functions.transfer(w3.to_checksum_address(v5_address), missing).build_transaction({
             "from": account.address,
             "nonce": tx_params["nonce"],
-            "gasPrice": tx_params["gasPrice"],
             "chainId": tx_params["chainId"],
         })
+        # ensure consistent EIP-1559 fees
+        fund_tx.update(_eip1559_fees(w3))
         try:
             fund_tx["gas"] = int(w3.eth.estimate_gas(fund_tx) * 1.2)
         except Exception:
@@ -293,9 +317,9 @@ def _withdraw_token(
     ).build_transaction({
         "from": account.address,
         "nonce": w3.eth.get_transaction_count(account.address),
-        "gasPrice": w3.eth.gas_price,
         "chainId": w3.eth.chain_id,
     })
+    tx.update(_eip1559_fees(w3))
     try:
         tx["gas"] = int(w3.eth.estimate_gas(tx) * 1.2)
     except Exception:
@@ -358,7 +382,8 @@ def main():
         if args.min_profit_wei is not None:
             min_profit_wei = int(args.min_profit_wei)
         else:
-            min_profit_wei = w3.to_wei(Decimal(str(args.min_profit)), "ether")
+            # Support negative values; avoid web3.to_wei (unsigned). Assumes 18 decimals.
+            min_profit_wei = int(Decimal(str(args.min_profit)) * Decimal(10**18))
         # plumb force-send flags into helper via attributes to avoid changing signature widely
         _exec_step12_buy.force_send_flag = bool(args.force_send)
         _exec_step12_buy.force_gas_limit = int(args.gas)
@@ -386,9 +411,9 @@ def main():
         "to": Web3.to_checksum_address(address),
         "value": value_wei,
         "nonce": nonce,
-        "gasPrice": w3.eth.gas_price,
         "chainId": chain_id,
     }
+    tx.update(_eip1559_fees(w3))
     try:
         tx["gas"] = w3.eth.estimate_gas(tx)
     except Exception:
