@@ -24,6 +24,9 @@ interface ICompositeLike {
 /// Futarchy router interface used for proper splits
 interface IFutarchyRouter {
     function splitPosition(address proposal, address token, uint256 amount) external;
+    /// Merge conditional collateral (YES/NO) back into base collateral `token` for a given `proposal`.
+    /// Expected to transferFrom both conditional legs from `msg.sender` (this executor) and mint `token`.
+    function mergePositions(address proposal, address token, uint256 amount) external;
 }
 
 /// Minimal Algebra/Swapr router interface (exact-in single hop)
@@ -81,6 +84,12 @@ contract FutarchyArbExecutorV5 {
         address indexed tokenOut,
         uint256 amountIn,
         uint256 amountOut
+    );
+    event ConditionalCollateralMerged(
+        address indexed router,
+        address indexed proposal,
+        address indexed collateral,
+        uint256 amount
     );
 
     /// Idempotent ERC20 max-approval (resets to 0 first if needed)
@@ -230,8 +239,6 @@ contract FutarchyArbExecutorV5 {
         address yes_cur,
         address no_cur,
         address swapr_router,
-        uint256 min_yes_out,
-        uint256 min_no_out,
         uint256 amount_sdai_in
     ) external {
         // Silence unused param (forward-compat)
@@ -269,13 +276,26 @@ contract FutarchyArbExecutorV5 {
         // --- Step 5: Sell conditional composite → conditional collateral on Swapr (exact-in) ---
         uint256 yesCompBal = IERC20(yes_comp).balanceOf(address(this));
         if (yesCompBal > 0) {
-            _swaprExactIn(swapr_router, yes_comp, yes_cur, yesCompBal, min_yes_out);
+            _swaprExactIn(swapr_router, yes_comp, yes_cur, yesCompBal, 0);
         }
         uint256 noCompBal = IERC20(no_comp).balanceOf(address(this));
         if (noCompBal > 0) {
-            _swaprExactIn(swapr_router, no_comp, no_cur, noCompBal, min_no_out);
+            _swaprExactIn(swapr_router, no_comp, no_cur, noCompBal, 0);
         }
-        // Steps 6–8 intentionally left for follow-up (merge to base collateral, pred market legs, profit check).
+        // --- Step 6: Merge conditional collateral (YES/NO) back into base collateral (cur) ---
+        if (futarchy_router != address(0) && proposal != address(0)) {
+            uint256 yesCurBal = IERC20(yes_cur).balanceOf(address(this));
+            uint256 noCurBal  = IERC20(no_cur).balanceOf(address(this));
+            uint256 mergeAmt  = yesCurBal < noCurBal ? yesCurBal : noCurBal;
+            if (mergeAmt > 0) {
+                // Router will transferFrom both legs; approve both to MAX
+                _ensureMaxAllowance(IERC20(yes_cur), futarchy_router);
+                _ensureMaxAllowance(IERC20(no_cur),  futarchy_router);
+                IFutarchyRouter(futarchy_router).mergePositions(proposal, cur, mergeAmt);
+                emit ConditionalCollateralMerged(futarchy_router, proposal, cur, mergeAmt);
+            }
+        }
+        // Steps 7–8 intentionally left for follow-up (pred market legs, profit check).
     }
 
     receive() external payable {}
