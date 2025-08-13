@@ -103,6 +103,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--force-send", action="store_true", help="Skip gas estimation and force on-chain send")
     p.add_argument("--gas", dest="gas", type=int, default=1_500_000, help="Gas limit when using --force-send (default 1.5M)")
     p.add_argument("--prefund", action="store_true", help="Transfer --amount-in sDAI from your EOA to the V5 executor before calling")
+    # Optional: provide Futarchy Router + Proposal explicitly for split step
+    p.add_argument("--futarchy-router", dest="fut_router", default=None, help="Futarchy Router address for splitPosition")
+    p.add_argument("--proposal", dest="proposal", default=None, help="Futarchy Proposal address for splitPosition")
     # Withdraw helpers (requires owner-enabled V5)
     p.add_argument("--withdraw-token", dest="wd_token", default=None, help="ERC20 token address to withdraw from V5")
     p.add_argument("--withdraw-to", dest="wd_to", default=None, help="Recipient address (defaults to your EOA)")
@@ -187,6 +190,8 @@ def _exec_step12_buy(
 
     comp = os.getenv("COMPANY_TOKEN_ADDRESS", COMPANY_TOKEN)
     cur = os.getenv("SDAI_TOKEN_ADDRESS", SDAI)
+    fut_router = os.getenv("FUTARCHY_ROUTER_ADDRESS")
+    proposal = os.getenv("FUTARCHY_PROPOSAL_ADDRESS")
     zero = Web3.to_checksum_address("0x0000000000000000000000000000000000000000")
     vault = balancer_vault or os.getenv("BALANCER_VAULT_ADDRESS") or os.getenv("BALANCER_VAULT_V3_ADDRESS") or zero
 
@@ -235,7 +240,9 @@ def _exec_step12_buy(
         Web3.to_checksum_address(vault) if isinstance(vault, str) else vault,
         Web3.to_checksum_address(comp),
         Web3.to_checksum_address(cur),
-        zero, zero, zero, zero, zero, zero, zero, zero,
+        Web3.to_checksum_address(fut_router) if fut_router else zero,
+        Web3.to_checksum_address(proposal) if proposal else zero,
+        zero, zero, zero, zero, zero, zero,
         0,
     ).build_transaction(tx_params)
 
@@ -298,6 +305,11 @@ def _withdraw_token(
 def main():
     args = parse_args()
     load_env(args.env_file)
+    # Allow CLI to override env for futarchy router/proposal
+    if args.fut_router:
+        os.environ["FUTARCHY_ROUTER_ADDRESS"] = args.fut_router
+    if args.proposal:
+        os.environ["FUTARCHY_PROPOSAL_ADDRESS"] = args.proposal
 
     rpc_url = require_env("RPC_URL")
     private_key = require_env("PRIVATE_KEY")
