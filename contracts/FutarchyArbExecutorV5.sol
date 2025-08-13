@@ -26,6 +26,23 @@ interface IFutarchyRouter {
     function splitPosition(address proposal, address token, uint256 amount) external;
 }
 
+/// Minimal Algebra/Swapr router interface (exact-in single hop)
+interface IAlgebraSwapRouter {
+    struct ExactInputSingleParams {
+        address tokenIn;
+        address tokenOut;
+        address recipient;
+        uint256 deadline;
+        uint256 amountIn;
+        uint256 amountOutMinimum;
+        uint160 limitSqrtPrice; // 0 for “no limit”
+    }
+    function exactInputSingle(ExactInputSingleParams calldata params)
+        external
+        payable
+        returns (uint256 amountOut);
+}
+
 /**
  * @title FutarchyArbExecutorV5 (Step 1 & 2 only)
  * @notice Snapshot collateral; ensure approvals (Permit2 + Vault); execute pre-encoded Balancer BatchRouter.swapExactIn.
@@ -58,6 +75,13 @@ contract FutarchyArbExecutorV5 {
     event BalancerBuyExecuted(address indexed router, bytes buyOps);
     event CompositeAcquired(address indexed comp, uint256 amount);
     event CompositeSplitAttempted(address indexed comp, uint256 amount, bool ok);
+    event SwaprExactInExecuted(
+        address indexed router,
+        address indexed tokenIn,
+        address indexed tokenOut,
+        uint256 amountIn,
+        uint256 amountOut
+    );
 
     /// Idempotent ERC20 max-approval (resets to 0 first if needed)
     function _ensureMaxAllowance(IERC20 token, address spender) internal {
@@ -78,6 +102,31 @@ contract FutarchyArbExecutorV5 {
         // 2) Permit2 internal allowance: owner = this contract; spender = router
         IPermit2(PERMIT2).approve(address(token), router, MAX_UINT160, MAX_UINT48);
         emit Permit2AllowanceEnsured(address(token), router, MAX_UINT160, MAX_UINT48);
+    }
+
+    /// Algebra/Swapr: approve and execute exact-input single hop
+    function _swaprExactIn(
+        address swapr_router,
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn,
+        uint256 minOut
+    ) internal returns (uint256 amountOut) {
+        require(swapr_router != address(0), "swapr router=0");
+        require(tokenIn != address(0) && tokenOut != address(0), "token=0");
+        if (amountIn == 0) return 0;
+        _ensureMaxAllowance(IERC20(tokenIn), swapr_router);
+        IAlgebraSwapRouter.ExactInputSingleParams memory p = IAlgebraSwapRouter.ExactInputSingleParams({
+            tokenIn: tokenIn,
+            tokenOut: tokenOut,
+            recipient: address(this),
+            deadline: block.timestamp,
+            amountIn: amountIn,
+            amountOutMinimum: minOut,
+            limitSqrtPrice: 0
+        });
+        amountOut = IAlgebraSwapRouter(swapr_router).exactInputSingle(p);
+        emit SwaprExactInExecuted(swapr_router, tokenIn, tokenOut, amountIn, amountOut);
     }
 
     /**
@@ -162,6 +211,71 @@ contract FutarchyArbExecutorV5 {
             (ok, ) = comp.call(abi.encodeWithSelector(ICompositeLike.split.selector, compBalance));
             emit CompositeSplitAttempted(comp, compBalance, ok);
         }
+    }
+
+    /**
+     * @notice Step 1–5 variant with explicit Futarchy + Swapr details.
+     * @dev Overload keeps legacy ABI intact while enabling Step 5.
+     */
+    function sell_conditional_arbitrage_balancer(
+        bytes calldata buy_company_ops,
+        address balancer_router,
+        address balancer_vault,
+        address comp,
+        address cur,
+        address futarchy_router,
+        address proposal,
+        address yes_comp,
+        address no_comp,
+        address yes_cur,
+        address no_cur,
+        address swapr_router,
+        uint256 min_yes_out,
+        uint256 min_no_out,
+        uint256 amount_sdai_in
+    ) external {
+        // Silence unused param (forward-compat)
+        (amount_sdai_in);
+
+        // --- Step 1: snapshot collateral ---
+        uint256 initial_cur_balance = IERC20(cur).balanceOf(address(this));
+        emit InitialCollateralSnapshot(cur, initial_cur_balance);
+
+        // --- Approvals required for the observed Balancer trace ---
+        _ensurePermit2Approvals(IERC20(cur), balancer_router);
+        if (balancer_vault != address(0)) {
+            _ensureMaxAllowance(IERC20(cur), balancer_vault);
+        }
+
+        // --- Step 2: Balancer buy ---
+        (bool ok, ) = balancer_router.call(buy_company_ops);
+        require(ok, "Balancer buy swap failed");
+        emit BalancerBuyExecuted(balancer_router, buy_company_ops);
+
+        // --- Step 3: verify composite acquired ---
+        uint256 compBalance = IERC20(comp).balanceOf(address(this));
+        emit CompositeAcquired(comp, compBalance);
+        require(compBalance > 0, "Failed to acquire composite token");
+
+        // --- Step 4: Split into conditional comps ---
+        if (futarchy_router != address(0) && proposal != address(0)) {
+            _ensureMaxAllowance(IERC20(comp), futarchy_router);
+            IFutarchyRouter(futarchy_router).splitPosition(proposal, comp, compBalance);
+        } else {
+            (ok, ) = comp.call(abi.encodeWithSelector(ICompositeLike.split.selector, compBalance));
+            emit CompositeSplitAttempted(comp, compBalance, ok);
+        }
+
+        // --- Step 5: Sell conditional composite → conditional collateral on Swapr (exact-in) ---
+        uint256 yesCompBal = IERC20(yes_comp).balanceOf(address(this));
+        if (yesCompBal > 0) {
+            _swaprExactIn(swapr_router, yes_comp, yes_cur, yesCompBal, min_yes_out);
+        }
+        uint256 noCompBal = IERC20(no_comp).balanceOf(address(this));
+        if (noCompBal > 0) {
+            _swaprExactIn(swapr_router, no_comp, no_cur, noCompBal, min_no_out);
+        }
+        // Steps 6–8 intentionally left for follow-up (merge to base collateral, pred market legs, profit check).
     }
 
     receive() external payable {}
