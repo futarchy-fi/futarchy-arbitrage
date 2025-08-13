@@ -15,6 +15,11 @@ interface IPermit2 {
     function approve(address token, address spender, uint160 amount, uint48 expiration) external;
 }
 
+/// Minimal composite-like splitter interface (defensive; low-level call used)
+interface ICompositeLike {
+    function split(uint256 amount) external;
+}
+
 /**
  * @title FutarchyArbExecutorV5 (Step 1 & 2 only)
  * @notice Snapshot collateral; ensure approvals (Permit2 + Vault); execute pre-encoded Balancer BatchRouter.swapExactIn.
@@ -32,6 +37,8 @@ contract FutarchyArbExecutorV5 {
     event MaxAllowanceEnsured(address indexed token, address indexed spender, uint256 allowance);
     event Permit2AllowanceEnsured(address indexed token, address indexed spender, uint160 amount, uint48 expiration);
     event BalancerBuyExecuted(address indexed router, bytes buyOps);
+    event CompositeAcquired(address indexed comp, uint256 amount);
+    event CompositeSplitAttempted(address indexed comp, uint256 amount, bool ok);
 
     /// Idempotent ERC20 max-approval (resets to 0 first if needed)
     function _ensureMaxAllowance(IERC20 token, address spender) internal {
@@ -113,6 +120,22 @@ contract FutarchyArbExecutorV5 {
         (bool ok, ) = balancer_router.call(buy_company_ops);
         require(ok, "Balancer buy swap failed");
         emit BalancerBuyExecuted(balancer_router, buy_company_ops);
+
+        // -----------------------------
+        // Step 3: verify composite acquired
+        // -----------------------------
+        uint256 compBalance = IERC20(comp).balanceOf(address(this));
+        emit CompositeAcquired(comp, compBalance);
+        require(compBalance > 0, "Failed to acquire composite token");
+
+        // -----------------------------
+        // Step 4: attempt to split composite (non-fatal)
+        // -----------------------------
+        // Many test paths use plain tokens (e.g., GNO) that do not implement split.
+        // Use a low-level call so this step is non-fatal during demos; later flows
+        // can enforce a concrete interface and strict success.
+        (ok, ) = comp.call(abi.encodeWithSelector(ICompositeLike.split.selector, compBalance));
+        emit CompositeSplitAttempted(comp, compBalance, ok);
     }
 
     receive() external payable {}
