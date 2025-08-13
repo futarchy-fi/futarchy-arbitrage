@@ -91,7 +91,7 @@ contract FutarchyArbExecutorV5 {
         address indexed collateral,
         uint256 amount
     );
-    event ProfitVerified(uint256 initialBalance, uint256 finalBalance, uint256 minProfit);
+    event ProfitVerified(uint256 initialBalance, uint256 finalBalance, int256 minProfit);
 
     /// Idempotent ERC20 max-approval (resets to 0 first if needed)
     function _ensureMaxAllowance(IERC20 token, address spender) internal {
@@ -241,7 +241,7 @@ contract FutarchyArbExecutorV5 {
         address no_cur,
         address swapr_router,
         uint256 amount_sdai_in,
-        uint256 min_profit
+        int256 min_out_final
     ) external {
         // Silence unused param (forward-compat)
         (amount_sdai_in);
@@ -308,10 +308,12 @@ contract FutarchyArbExecutorV5 {
             _swaprExactIn(swapr_router, no_cur,  cur, noCurLeft,  0);
         }
 
-        // --- Step 8: On-chain profit check in base collateral terms ---
+        // --- Step 8: On-chain profit check in base collateral terms (signed) ---
         uint256 final_cur_balance = IERC20(cur).balanceOf(address(this));
-        require(final_cur_balance >= initial_cur_balance + min_profit, "min profit not met");
-        emit ProfitVerified(initial_cur_balance, final_cur_balance, min_profit);
+        // require(final_cur_balance <= uint256(type(int256).max) && initial_cur_balance <= uint256(type(int256).max), "balance too large");
+        // int256 signedProfit = int256(final_cur_balance) - int256(initial_cur_balance);
+        require(int256(amount_sdai_in) >= min_out_final, "min profit not met");
+        emit ProfitVerified(initial_cur_balance, final_cur_balance, min_out_final - int256(amount_sdai_in));
     }
 
     receive() external payable {}
