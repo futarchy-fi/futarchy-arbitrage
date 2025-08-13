@@ -101,6 +101,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--amount-in", dest="amount_in", default=None, help="Amount of sDAI to spend (ether units)")
     p.add_argument("--force-send", action="store_true", help="Skip gas estimation and force on-chain send")
     p.add_argument("--gas", dest="gas", type=int, default=1_500_000, help="Gas limit when using --force-send (default 1.5M)")
+    p.add_argument("--min-profit", dest="min_profit", default="0", help="Required profit in ether units (default 0)")
+    p.add_argument("--min-profit-wei", dest="min_profit_wei", default=None, help="Required profit in wei (overrides --min-profit)")
     p.add_argument("--prefund", action="store_true", help="Transfer --amount-in sDAI from your EOA to the V5 executor before calling")
     # Withdraw helpers (requires owner-enabled V5)
     p.add_argument("--withdraw-token", dest="wd_token", default=None, help="ERC20 token address to withdraw from V5")
@@ -174,6 +176,7 @@ def _exec_step12_buy(
     account,
     v5_address: str,
     amount_in_eth: str,
+    min_profit_wei: int,
     ) -> str:
     abi = _load_v5_abi()
     v5 = w3.eth.contract(address=w3.to_checksum_address(v5_address), abi=abi)
@@ -251,6 +254,7 @@ def _exec_step12_buy(
         Web3.to_checksum_address(no_cur),
         Web3.to_checksum_address(swapr_router),
         0,
+        int(min_profit_wei),
     ).build_transaction(tx_params)
 
     # If we didn't force a gas limit earlier, try to estimate now with a buffer; otherwise keep provided gas
@@ -350,11 +354,16 @@ def main():
     if args.step12:
         if not args.amount_in:
             raise SystemExit("--amount-in is required with --step12 (ether units)")
+        # compute min_profit_wei from CLI
+        if args.min_profit_wei is not None:
+            min_profit_wei = int(args.min_profit_wei)
+        else:
+            min_profit_wei = w3.to_wei(Decimal(str(args.min_profit)), "ether")
         # plumb force-send flags into helper via attributes to avoid changing signature widely
         _exec_step12_buy.force_send_flag = bool(args.force_send)
         _exec_step12_buy.force_gas_limit = int(args.gas)
         _exec_step12_buy.prefund_flag = bool(args.prefund)
-        _exec_step12_buy(w3, acct, address, args.amount_in)
+        _exec_step12_buy(w3, acct, address, args.amount_in, min_profit_wei)
         return
 
     # Withdraw flow (requires owner-enabled V5; redeploy if your V5 has no owner)
