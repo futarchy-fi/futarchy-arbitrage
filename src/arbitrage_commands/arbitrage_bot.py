@@ -169,9 +169,9 @@ class ArbitrageBot:
         addr_bal = os.getenv("BALANCER_POOL_ADDRESS")
         
         # Fetch Swapr prices (YES and NO pools have GNO as token1)
-        yes_price, yes_base, yes_quote = swapr_price(self.w3, addr_yes, base_token_index=1)
-        pred_yes_price, _, _ = swapr_price(self.w3, addr_pred_yes, base_token_index=0)
-        no_price, no_base, no_quote = swapr_price(self.w3, addr_no, base_token_index=1)
+        yes_price, yes_base, yes_quote = swapr_price(self.w3, addr_yes)
+        pred_yes_price, _, _ = swapr_price(self.w3, addr_pred_yes)
+        no_price, no_base, no_quote = swapr_price(self.w3, addr_no)
         
         # Fetch Balancer price
         bal_price_val, bal_base, bal_quote = bal_price(self.w3, addr_bal)
