@@ -82,6 +82,32 @@ interface ISwapRouterV3ExactOutput {
         returns (uint256 amountIn);
 }
 
+/// ------------------------
+/// Balancer BatchRouter (swapExactIn) – typed interface for BUY step 6
+/// ------------------------
+interface IBalancerBatchRouter {
+    struct SwapPathStep {
+        address pool;
+        address tokenOut;
+        bool    isBuffer;
+    }
+    struct SwapPathExactAmountIn {
+        address tokenIn;
+        SwapPathStep[] steps;
+        uint256 exactAmountIn;
+        uint256 minAmountOut;
+    }
+    function swapExactIn(
+        SwapPathExactAmountIn[] calldata paths,
+        uint256 deadline,
+        bool wethIsEth,
+        bytes calldata userData
+    )
+        external
+        payable
+        returns (uint256[] memory pathAmountsOut, address[] memory tokensOut, uint256[] memory amountsOut);
+}
+
 /**
  * @title FutarchyArbExecutorV5 (Step 1 & 2 only)
  * @notice Snapshot collateral; ensure approvals (Permit2 + Vault); execute pre-encoded Balancer BatchRouter.swapExactIn.
@@ -112,6 +138,7 @@ contract FutarchyArbExecutorV5 {
     event MaxAllowanceEnsured(address indexed token, address indexed spender, uint256 allowance);
     event Permit2AllowanceEnsured(address indexed token, address indexed spender, uint160 amount, uint48 expiration);
     event BalancerBuyExecuted(address indexed router, bytes buyOps);
+    event BalancerSellExecuted(address indexed router, bytes sellOps);
     event CompositeAcquired(address indexed comp, uint256 amount);
     event CompositeSplitAttempted(address indexed comp, uint256 amount, bool ok);
     event SwaprExactInExecuted(
@@ -230,10 +257,10 @@ contract FutarchyArbExecutorV5 {
      * @dev Uses exact-in on cheaper side, exact-out on other side capped by amount_sdai_in.
      */
     function buy_conditional_arbitrage_balancer(
-        bytes calldata sell_company_ops, // reserved for future steps
-        address balancer_router,         // reserved for future steps
-        address balancer_vault,          // reserved for future steps
-        address comp,                    // reserved for future steps
+        bytes calldata sell_company_ops, // Balancer BatchRouter.swapExactIn (COMP -> sDAI) calldata
+        address balancer_router,         // BatchRouter address (expects swapExactIn)
+        address balancer_vault,          // Vault/V3 (optional; 0 if unused)
+        address comp,                    // Composite token (Company)
         address cur,
         bool yes_has_higher_price,
         address futarchy_router,
@@ -247,8 +274,7 @@ contract FutarchyArbExecutorV5 {
         address swapr_router,
         uint256 amount_sdai_in
     ) external {
-        // Silence currently-unused params for future compatibility
-        (sell_company_ops, balancer_router, balancer_vault, comp);
+        // KEEPING signature stable; previously reserved params are now used.
 
         require(amount_sdai_in > 0, "amount=0");
         require(futarchy_router != address(0) && proposal != address(0), "router/proposal=0");
@@ -275,6 +301,55 @@ contract FutarchyArbExecutorV5 {
             uint256 noCompOut = _swaprExactIn(swapr_router, no_cur, no_comp, amount_sdai_in, 0);
             require(noCompOut > 0, "NO exact-in produced zero");
             _swaprExactOut(swapr_router, yes_cur, yes_comp, yesFee, noCompOut, amount_sdai_in);
+        }
+
+        // ------------------------------------------------------------------ //
+        // Step 4: Merge conditional composite tokens (YES_COMP/NO_COMP -> COMP)
+        // ------------------------------------------------------------------ //
+        uint256 yesCompBal = IERC20(yes_comp).balanceOf(address(this));
+        uint256 noCompBal  = IERC20(no_comp).balanceOf(address(this));
+        uint256 mergeAmt   = yesCompBal < noCompBal ? yesCompBal : noCompBal;
+        if (mergeAmt > 0) {
+            // Router will transferFrom both legs; approve both to MAX
+            _ensureMaxAllowance(IERC20(yes_comp), futarchy_router);
+            _ensureMaxAllowance(IERC20(no_comp),  futarchy_router);
+            IFutarchyRouter(futarchy_router).mergePositions(proposal, comp, mergeAmt);
+            // Reuse merged event; collateral param carries `comp` in this branch
+            emit ConditionalCollateralMerged(futarchy_router, proposal, comp, mergeAmt);
+        }
+
+        // ------------------------------------------------------------------ //
+        // Step 5: Approvals for Balancer sell (COMP -> sDAI)
+        //   - Use Permit2(owner=this, spender=router) for COMP
+        //   - Optionally max-approve the Vault (if nonzero)
+        // ------------------------------------------------------------------ //
+        if (sell_company_ops.length > 0 && mergeAmt > 0) {
+            require(balancer_router != address(0), "balancer router=0");
+            _ensurePermit2Approvals(IERC20(comp), balancer_router);
+            if (balancer_vault != address(0)) {
+                _ensureMaxAllowance(IERC20(comp), balancer_vault);
+            }
+
+            // ------------------------------------------------------------------ //
+            // Step 6: Decode provided swapExactIn payload, override exactAmountIn, call router
+            // ------------------------------------------------------------------ //
+            (
+                IBalancerBatchRouter.SwapPathExactAmountIn[] memory paths,
+                uint256 deadline,
+                bool wethIsEth,
+                bytes memory userData
+            ) = abi.decode(
+                sell_company_ops[4:],
+                (IBalancerBatchRouter.SwapPathExactAmountIn[], uint256, bool, bytes)
+            );
+            require(paths.length > 0, "paths=0");
+            if (paths[0].tokenIn != comp) {
+                paths[0].tokenIn = comp;
+            }
+            paths[0].exactAmountIn = mergeAmt;
+
+            IBalancerBatchRouter(balancer_router).swapExactIn(paths, deadline, wethIsEth, userData);
+            emit BalancerSellExecuted(balancer_router, sell_company_ops);
         }
     }
 
