@@ -253,8 +253,11 @@ contract FutarchyArbExecutorV5 {
     }
 
     /**
-     * @notice Symmetric path (steps 1–3 only): split sDAI to conditional collateral; buy equal YES/NO comps.
-     * @dev Uses exact-in on cheaper side, exact-out on other side capped by amount_sdai_in.
+     * @notice Symmetric BUY: steps 1–6 already implemented; this patch adds steps 7–8.
+     * @dev Steps 1–3: split sDAI -> conditional collateral; buy YES/NO comps (exact-in + exact-out).
+     *      Step 4: merge comps -> COMP; Step 5–6: sell COMP -> sDAI on Balancer.
+     *      Step 7: sell remaining single-sided conditional collateral (YES_cur or NO_cur) -> cur on Swapr.
+     *      Step 8: on-chain profit check in base-collateral terms against `min_out_final`.
      */
     function buy_conditional_arbitrage_balancer(
         bytes calldata sell_company_ops, // Balancer BatchRouter.swapExactIn (COMP -> sDAI) calldata
@@ -272,9 +275,12 @@ contract FutarchyArbExecutorV5 {
         address yes_pool,
         address no_pool,
         address swapr_router,
-        uint256 amount_sdai_in
+        uint256 amount_sdai_in,
+        int256  min_out_final
     ) external {
-        // KEEPING signature stable; previously reserved params are now used.
+        // KEEPING signature compatible; new arg appended.
+        // --- Step 0: snapshot base collateral for profit accounting ---
+        uint256 initial_cur_balance = IERC20(cur).balanceOf(address(this));
 
         require(amount_sdai_in > 0, "amount=0");
         require(futarchy_router != address(0) && proposal != address(0), "router/proposal=0");
@@ -351,6 +357,26 @@ contract FutarchyArbExecutorV5 {
             IBalancerBatchRouter(balancer_router).swapExactIn(paths, deadline, wethIsEth, userData);
             emit BalancerSellExecuted(balancer_router, sell_company_ops);
         }
+
+        // --- Step 7: Sell any remaining single-sided conditional collateral to base collateral on Swapr ---
+        uint256 yesCurLeft = IERC20(yes_cur).balanceOf(address(this));
+        uint256 noCurLeft  = IERC20(no_cur).balanceOf(address(this));
+        if (yesCurLeft > 0) {
+            _swaprExactIn(swapr_router, yes_cur, cur, yesCurLeft, 0);
+        } else if (noCurLeft > 0) {
+            _swaprExactIn(swapr_router, no_cur,  cur, noCurLeft,  0);
+        }
+
+        // --- Step 8: On-chain profit check in base collateral terms (signed) ---
+        uint256 final_cur_balance = IERC20(cur).balanceOf(address(this));
+        require(
+            final_cur_balance <= uint256(type(int256).max) &&
+            initial_cur_balance <= uint256(type(int256).max),
+            "balance too large"
+        );
+        int256 signedProfit = int256(final_cur_balance) - int256(initial_cur_balance);
+        require(signedProfit >= min_out_final, "min profit not met");
+        emit ProfitVerified(initial_cur_balance, final_cur_balance, min_out_final);
     }
 
 

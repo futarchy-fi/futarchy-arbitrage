@@ -546,6 +546,8 @@ def _exec_buy12(
         "pred_yes_pool":    pred_yes_pool,
         "pred_no_pool":     pred_no_pool,
         "amount_sdai_in":   int(amount_in_wei),
+        # New on-chain profit guard (signed). ABI-adaptive: ignored on older ABIs.
+        "min_out_final":    int(getattr(_exec_buy12, "min_out_final_wei", 0)),
     }
     fn_abi = _choose_function_abi(abi, "buy_conditional_arbitrage_balancer", set(values.keys()))
     args = _materialize_args(w3, fn_abi, values)
@@ -656,7 +658,7 @@ def main():
         _exec_step12_sell(w3, acct, address, args.amount_in, yes_cheaper, min_profit_wei)
         return
 
-    # Symmetric BUY steps 1–3 (split + dual swaps)
+    # Symmetric BUY steps 1–3 (split + dual swaps), optionally extended to 4–8
     # Optionally extend to steps 4–6 if --sell-comp-amount* provided (merge comps, sell COMP->sDAI on Balancer)
     if args.buy12:
         if not args.amount_in:
@@ -665,6 +667,11 @@ def main():
         _exec_buy12.force_send_flag = bool(args.force_send)
         _exec_buy12.force_gas_limit = int(args.gas)
         _exec_buy12.prefund_flag = bool(args.prefund)
+        # Signed min-out guard for final base-collateral delta (applies to BUY path steps 1–8)
+        if args.min_profit_wei is not None:
+            _exec_buy12.min_out_final_wei = int(args.min_profit_wei)
+        else:
+            _exec_buy12.min_out_final_wei = w3.to_wei(Decimal(str(args.min_profit)), "ether")
         # Optional: steps 4–6 controls (sell COMP->sDAI on Balancer)
         if args.sell_comp_amount_wei is not None:
             _exec_buy12.sell_comp_amount_wei = int(args.sell_comp_amount_wei)
