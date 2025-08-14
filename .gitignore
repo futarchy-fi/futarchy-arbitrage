@@ -37,3 +37,6 @@ build/
 deployments/
 deployment_executor_v5_*.json
 temp/
+
+# Configuration files with potential private keys
+config/*.json
