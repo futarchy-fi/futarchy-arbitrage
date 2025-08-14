@@ -120,13 +120,18 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--address", dest="address", default=None, help="Futarchy V5 contract address")
     p.add_argument("--send-wei", dest="send_wei", default="0", help="Wei to send to receive() (default 0)")
     # Step1/2 Balancer buy flow
-    p.add_argument("--step12", action="store_true", help="Execute Step 1&2 Balancer buy flow via V5")
+    p.add_argument("--step12", action="store_true", help="Execute SELL flow via V5 (Balancer buy then conditional unwind) – ABI-adaptive")
+    # Symmetric BUY (steps 1–3): split sDAI and dual Swapr buys
+    p.add_argument("--buy12", action="store_true", help="Execute symmetric BUY steps 1–3: split sDAI, buy cheaper leg exact-in, other leg exact-out")
     p.add_argument("--amount-in", dest="amount_in", default=None, help="Amount of sDAI to spend (ether units)")
     p.add_argument("--force-send", action="store_true", help="Skip gas estimation and force on-chain send")
     p.add_argument("--gas", dest="gas", type=int, default=1_500_000, help="Gas limit when using --force-send (default 1.5M)")
     p.add_argument("--min-profit", dest="min_profit", default="0", help="Required profit in ether units (default 0)")
     p.add_argument("--min-profit-wei", dest="min_profit_wei", default=None, help="Required profit in wei (overrides --min-profit)")
     p.add_argument("--prefund", action="store_true", help="Transfer --amount-in sDAI from your EOA to the V5 executor before calling")
+    # Which side is cheaper? (for updated on-chain signatures that branch by price)
+    p.add_argument("--side-lower", dest="side_lower", choices=["yes", "no"], help="Cheaper leg selector for exact-in step (overrides --yes-cheaper)")
+    p.add_argument("--yes-cheaper", dest="yes_cheaper", action="store_true", help="Alias for --side-lower yes")
     # Withdraw helpers (requires owner-enabled V5)
     p.add_argument("--withdraw-token", dest="wd_token", default=None, help="ERC20 token address to withdraw from V5")
     p.add_argument("--withdraw-to", dest="wd_to", default=None, help="Recipient address (defaults to your EOA)")
@@ -193,13 +198,77 @@ _ERC20_MIN_ABI = [
     },
 ]
 
+ZERO_ADDR = Web3.to_checksum_address("0x0000000000000000000000000000000000000000")
 
-def _exec_step12_buy(
+def _first_env(*names: str) -> Optional[str]:
+    for k in names:
+        v = os.getenv(k)
+        if v:
+            return v
+    return None
+
+def _addr_or_zero(w3: Web3, *names: str) -> str:
+    v = _first_env(*names)
+    return w3.to_checksum_address(v) if v else ZERO_ADDR
+
+def _require_addr(w3: Web3, *names: str) -> str:
+    v = _first_env(*names)
+    if not v:
+        raise SystemExit(f"Missing required address env var (tried: {', '.join(names)})")
+    return w3.to_checksum_address(v)
+
+def _pick_yes_cheaper(args: argparse.Namespace) -> bool:
+    if args.side_lower is not None:
+        return args.side_lower.lower() == "yes"
+    return bool(args.yes_cheaper)
+
+def _choose_function_abi(abi: list, name: str, available: set[str]) -> dict:
+    """Pick the best-matching function ABI by minimizing missing param names."""
+    candidates = [f for f in abi if f.get("type") == "function" and f.get("name") == name]
+    if not candidates:
+        raise SystemExit(f"ABI: function {name} not found")
+    def score(fn):
+        in_names = [i.get("name") for i in fn.get("inputs", [])]
+        missing = [n for n in in_names if n not in available]
+        return (len(missing), -len(in_names))  # prefer fewer missing, then more specific (more inputs)
+    candidates.sort(key=score)
+    return candidates[0]
+
+def _materialize_args(w3: Web3, fn_abi: dict, values: dict) -> list:
+    args: list = []
+    for inp in fn_abi.get("inputs", []):
+        nm, typ = inp["name"], inp["type"]
+        if nm not in values:
+            raise SystemExit(f"Cannot construct call: missing argument '{nm}' for {fn_abi.get('name')}")
+        val = values[nm]
+        if typ == "address":
+            if isinstance(val, str):
+                val = w3.to_checksum_address(val)
+            else:
+                raise SystemExit(f"Bad address for '{nm}'")
+        elif typ == "bool":
+            val = bool(val)
+        elif typ.startswith("uint") or typ.startswith("int"):
+            val = int(val)
+        elif typ == "bytes" or typ.startswith("bytes"):
+            if isinstance(val, bytes):
+                val = Web3.to_hex(val)
+            elif isinstance(val, str):
+                if not val.startswith("0x"):
+                    raise SystemExit(f"Bytes arg '{nm}' must be hex (0x…) or bytes")
+            else:
+                raise SystemExit(f"Unsupported bytes type for '{nm}'")
+        args.append(val)
+    return args
+
+
+def _exec_step12_sell(
     w3: Web3,
     account,
     v5_address: str,
     amount_in_eth: str,
-    min_profit_wei: int,
+    yes_has_lower_price: bool,
+    min_profit_wei: Optional[int],
     ) -> str:
     abi = _load_v5_abi()
     v5 = w3.eth.contract(address=w3.to_checksum_address(v5_address), abi=abi)
@@ -208,9 +277,10 @@ def _exec_step12_buy(
     # Resolve required addresses strictly from env
     balancer_router = require_env("BALANCER_ROUTER_ADDRESS")
     balancer_vault  = os.getenv("BALANCER_VAULT_ADDRESS") or os.getenv("BALANCER_VAULT_V3_ADDRESS")
-    fut_router      = require_env("FUTARCHY_ROUTER_ADDRESS")
-    proposal        = require_env("FUTARCHY_PROPOSAL_ADDRESS")
-    swapr_router    = require_env("SWAPR_ROUTER_ADDRESS")
+    # Optional legacy (older sell signature); newer may omit
+    fut_router_opt  = _first_env("FUTARCHY_ROUTER_ADDRESS")
+    proposal_opt    = _first_env("FUTARCHY_PROPOSAL_ADDRESS")
+    swapr_router    = _require_addr(w3, "SWAPR_ROUTER_ADDRESS")
     yes_comp        = require_env("SWAPR_GNO_YES_ADDRESS")
     no_comp         = require_env("SWAPR_GNO_NO_ADDRESS")
     yes_cur         = require_env("SWAPR_SDAI_YES_ADDRESS")
@@ -220,8 +290,7 @@ def _exec_step12_buy(
 
     comp = os.getenv("COMPANY_TOKEN_ADDRESS", COMPANY_TOKEN)
     cur = os.getenv("SDAI_TOKEN_ADDRESS", SDAI)
-    zero = Web3.to_checksum_address("0x0000000000000000000000000000000000000000")
-    vault = balancer_vault or zero
+    vault = balancer_vault or ZERO_ADDR
 
     tx_params = {
         "from": account.address,
@@ -236,7 +305,7 @@ def _exec_step12_buy(
     exec_bal = sdai.functions.balanceOf(w3.to_checksum_address(v5_address)).call()
     if exec_bal < amount_in_wei:
         missing = amount_in_wei - exec_bal
-        if not getattr(_exec_step12_buy, "prefund_flag", False):
+        if not getattr(_exec_step12_sell, "prefund_flag", False):
             raise SystemExit(
                 f"Executor sDAI balance {w3.from_wei(exec_bal, 'ether')} < needed {w3.from_wei(amount_in_wei, 'ether')}. "
                 f"Re-run with --prefund to transfer {w3.from_wei(missing, 'ether')} sDAI to the executor."
@@ -260,28 +329,160 @@ def _exec_step12_buy(
         tx_params["nonce"] += 1
 
     # If caller wants to force-send, provide a gas limit up front to avoid web3's estimation
-    if getattr(_exec_step12_buy, "force_send_flag", False):
-        tx_params["gas"] = getattr(_exec_step12_buy, "force_gas_limit", 1_500_000)
+    if getattr(_exec_step12_sell, "force_send_flag", False):
+        tx_params["gas"] = getattr(_exec_step12_sell, "force_gas_limit", 1_500_000)
 
-    # Always call the extended overload (Steps 1–6); addresses come from env
-    tx = v5.functions.sell_conditional_arbitrage_balancer(
-        buy_ops,
-        Web3.to_checksum_address(balancer_router),
-        Web3.to_checksum_address(vault) if isinstance(vault, str) else vault,
-        Web3.to_checksum_address(comp),
-        Web3.to_checksum_address(cur),
-        Web3.to_checksum_address(fut_router),
-        Web3.to_checksum_address(proposal),
-        Web3.to_checksum_address(yes_comp),
-        Web3.to_checksum_address(no_comp),
-        Web3.to_checksum_address(yes_cur),
-        Web3.to_checksum_address(no_cur),
-        Web3.to_checksum_address(swapr_router),
-        0,
-        int(min_profit_wei),
-    ).build_transaction(tx_params)
+    # ABI-adaptive call build
+    # Optional pools for newer ABIs (0 if unused)
+    yes_pool      = _addr_or_zero(w3, "SWAPR_GNO_YES_POOL", "YES_COMP_POOL", "YES_POOL")
+    no_pool       = _addr_or_zero(w3, "SWAPR_GNO_NO_POOL",  "NO_COMP_POOL",  "NO_POOL")
+    pred_yes_pool = _addr_or_zero(w3, "SWAPR_SDAI_YES_POOL", "PRED_YES_POOL")
+    pred_no_pool  = _addr_or_zero(w3, "SWAPR_SDAI_NO_POOL",  "PRED_NO_POOL")
+
+    values = {
+        "buy_company_ops": buy_ops,
+        "balancer_router": balancer_router,
+        "balancer_vault":  vault,
+        "comp":             comp,
+        "cur":              cur,
+        # Provide both names so either ABI (lower or higher) is satisfied
+        "yes_has_lower_price": bool(yes_has_lower_price),
+        "yes_has_higher_price": (not bool(yes_has_lower_price)),
+        "futarchy_router": fut_router_opt or ZERO_ADDR,
+        "proposal":        proposal_opt or ZERO_ADDR,
+        "yes_comp":        yes_comp,
+        "no_comp":         no_comp,
+        "yes_cur":         yes_cur,
+        "no_cur":          no_cur,
+        "yes_pool":        yes_pool,
+        "no_pool":         no_pool,
+        "pred_yes_pool":   pred_yes_pool,
+        "pred_no_pool":    pred_no_pool,
+        "swapr_router":    swapr_router,
+        "amount_sdai_in":  int(amount_in_wei),
+        # Profit guard param name varies across ABIs; pass both
+        "min_profit":      int(min_profit_wei or 0),
+        "min_out_final":   int(min_profit_wei or 0),
+    }
+    fn_abi = _choose_function_abi(abi, "sell_conditional_arbitrage_balancer", set(values.keys()))
+    args = _materialize_args(w3, fn_abi, values)
+    tx = getattr(v5.functions, "sell_conditional_arbitrage_balancer")(*args).build_transaction(tx_params)
 
     # If we didn't force a gas limit earlier, try to estimate now with a buffer; otherwise keep provided gas
+    if "gas" not in tx:
+        try:
+            gas_est = w3.eth.estimate_gas(tx)
+            tx["gas"] = int(gas_est * 1.2)
+        except Exception:
+            tx["gas"] = 1_500_000
+
+    signed = account.sign_transaction(tx)
+    raw = getattr(signed, "rawTransaction", None) or getattr(signed, "raw_transaction", None)
+    tx_hash = w3.eth.send_raw_transaction(raw)
+    txh = tx_hash.hex()
+    txh0x = txh if txh.startswith("0x") else f"0x{txh}"
+    print(f"Tx sent: {txh0x}")
+    print(f"GnosisScan:  https://gnosisscan.io/tx/{txh0x}")
+    print(f"Blockscout: https://gnosis.blockscout.com/tx/{txh0x}")
+    receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
+    print(f"Success: {receipt.status == 1}; Gas used: {receipt.gasUsed}")
+    return txh0x
+
+
+def _exec_buy12(
+    w3: Web3,
+    account,
+    v5_address: str,
+    amount_in_eth: str,
+    yes_has_lower_price: bool,
+) -> str:
+    """Symmetric BUY steps 1–3 only: split sDAI; buy cheaper leg exact-in; other leg exact-out."""
+    abi = _load_v5_abi()
+    v5 = w3.eth.contract(address=w3.to_checksum_address(v5_address), abi=abi)
+
+    amount_in_wei = w3.to_wei(Decimal(str(amount_in_eth)), "ether")
+    # Addresses (env)
+    balancer_router = require_env("BALANCER_ROUTER_ADDRESS")  # accepted for signature stability; not used in steps 1–3
+    balancer_vault  = os.getenv("BALANCER_VAULT_ADDRESS") or os.getenv("BALANCER_VAULT_V3_ADDRESS") or ZERO_ADDR
+    comp            = os.getenv("COMPANY_TOKEN_ADDRESS", COMPANY_TOKEN)
+    cur             = os.getenv("SDAI_TOKEN_ADDRESS", SDAI)
+    swapr_router    = _require_addr(w3, "SWAPR_ROUTER_ADDRESS")
+    fr_opt          = _first_env("FUTARCHY_ROUTER_ADDRESS")
+    pr_opt          = _first_env("FUTARCHY_PROPOSAL_ADDRESS")
+    yes_comp        = require_env("SWAPR_GNO_YES_ADDRESS")
+    no_comp         = require_env("SWAPR_GNO_NO_ADDRESS")
+    yes_cur         = require_env("SWAPR_SDAI_YES_ADDRESS")
+    no_cur          = require_env("SWAPR_SDAI_NO_ADDRESS")
+    # Pools – pass ZERO if ABI asks for them
+    yes_pool        = _addr_or_zero(w3, "SWAPR_GNO_YES_POOL", "YES_COMP_POOL", "YES_POOL")
+    no_pool         = _addr_or_zero(w3, "SWAPR_GNO_NO_POOL",  "NO_COMP_POOL",  "NO_POOL")
+    pred_yes_pool   = _addr_or_zero(w3, "SWAPR_SDAI_YES_POOL", "PRED_YES_POOL")
+    pred_no_pool    = _addr_or_zero(w3, "SWAPR_SDAI_NO_POOL",  "PRED_NO_POOL")
+
+    # Ensure the executor is funded with sDAI to split
+    sdai_addr = os.getenv("SDAI_TOKEN_ADDRESS", SDAI)
+    sdai = w3.eth.contract(address=w3.to_checksum_address(sdai_addr), abi=_ERC20_MIN_ABI)
+    exec_bal = sdai.functions.balanceOf(w3.to_checksum_address(v5_address)).call()
+    tx_params = {
+        "from": account.address,
+        "nonce": w3.eth.get_transaction_count(account.address),
+        "chainId": w3.eth.chain_id,
+    }
+    tx_params.update(_eip1559_fees(w3))
+    if exec_bal < amount_in_wei:
+        missing = amount_in_wei - exec_bal
+        if not getattr(_exec_buy12, "prefund_flag", False):
+            raise SystemExit(
+                f"Executor sDAI balance {w3.from_wei(exec_bal, 'ether')} < needed {w3.from_wei(amount_in_wei, 'ether')}. "
+                f"Re-run with --prefund to transfer {w3.from_wei(missing, 'ether')} sDAI to the executor."
+            )
+        fund_tx = sdai.functions.transfer(w3.to_checksum_address(v5_address), missing).build_transaction({
+            "from": account.address,
+            "nonce": tx_params["nonce"],
+            "chainId": tx_params["chainId"],
+        })
+        fund_tx.update(_eip1559_fees(w3))
+        try:
+            fund_tx["gas"] = int(w3.eth.estimate_gas(fund_tx) * 1.2)
+        except Exception:
+            fund_tx["gas"] = 150_000
+        signed_fund = account.sign_transaction(fund_tx)
+        raw_fund = getattr(signed_fund, "rawTransaction", None) or getattr(signed_fund, "raw_transaction", None)
+        fund_hash = w3.eth.send_raw_transaction(raw_fund)
+        print(f"Prefund tx: {fund_hash.hex()}")
+        w3.eth.wait_for_transaction_receipt(fund_hash)
+        tx_params["nonce"] += 1
+
+    if getattr(_exec_buy12, "force_send_flag", False):
+        tx_params["gas"] = getattr(_exec_buy12, "force_gas_limit", 1_500_000)
+
+    # ABI-adaptive construction of buy_conditional_arbitrage_balancer call
+    values = {
+        "sell_company_ops": "0x",
+        "balancer_router":  balancer_router,
+        "balancer_vault":   balancer_vault,
+        "comp":             comp,
+        "cur":              cur,
+        # Support either ABI field name: provide both lower/higher
+        "yes_has_lower_price": bool(yes_has_lower_price),
+        "yes_has_higher_price": (not bool(yes_has_lower_price)),
+        "futarchy_router":  fr_opt or ZERO_ADDR,
+        "proposal":         pr_opt or ZERO_ADDR,
+        "yes_comp":         yes_comp,
+        "no_comp":          no_comp,
+        "yes_cur":          yes_cur,
+        "no_cur":           no_cur,
+        "swapr_router":     swapr_router,
+        "yes_pool":         yes_pool,
+        "no_pool":          no_pool,
+        "pred_yes_pool":    pred_yes_pool,
+        "pred_no_pool":     pred_no_pool,
+        "amount_sdai_in":   int(amount_in_wei),
+    }
+    fn_abi = _choose_function_abi(abi, "buy_conditional_arbitrage_balancer", set(values.keys()))
+    args = _materialize_args(w3, fn_abi, values)
+    tx = getattr(v5.functions, "buy_conditional_arbitrage_balancer")(*args).build_transaction(tx_params)
+
     if "gas" not in tx:
         try:
             gas_est = w3.eth.estimate_gas(tx)
@@ -374,21 +575,28 @@ def main():
     chain_id = w3.eth.chain_id
     nonce = w3.eth.get_transaction_count(acct.address)
 
-    # If user requested Step 1/2 flow
+    # If user requested SELL flow (Balancer buy + unwind)
     if args.step12:
         if not args.amount_in:
             raise SystemExit("--amount-in is required with --step12 (ether units)")
-        # compute min_profit_wei from CLI
-        if args.min_profit_wei is not None:
-            min_profit_wei = int(args.min_profit_wei)
-        else:
-            # Support negative values; avoid web3.to_wei (unsigned). Assumes 18 decimals.
-            min_profit_wei = int(Decimal(str(args.min_profit)) * Decimal(10**18))
-        # plumb force-send flags into helper via attributes to avoid changing signature widely
-        _exec_step12_buy.force_send_flag = bool(args.force_send)
-        _exec_step12_buy.force_gas_limit = int(args.gas)
-        _exec_step12_buy.prefund_flag = bool(args.prefund)
-        _exec_step12_buy(w3, acct, address, args.amount_in, min_profit_wei)
+        # compute min_profit_wei from CLI if present
+        min_profit_wei = int(args.min_profit_wei) if args.min_profit_wei is not None else int(Decimal(str(args.min_profit)) * Decimal(10**18))
+        yes_cheaper = _pick_yes_cheaper(args)
+        _exec_step12_sell.force_send_flag = bool(args.force_send)
+        _exec_step12_sell.force_gas_limit = int(args.gas)
+        _exec_step12_sell.prefund_flag = bool(args.prefund)
+        _exec_step12_sell(w3, acct, address, args.amount_in, yes_cheaper, min_profit_wei)
+        return
+
+    # Symmetric BUY steps 1–3 (split + dual swaps)
+    if args.buy12:
+        if not args.amount_in:
+            raise SystemExit("--amount-in is required with --buy12 (ether units)")
+        no_cheaper = not _pick_yes_cheaper(args)
+        _exec_buy12.force_send_flag = bool(args.force_send)
+        _exec_buy12.force_gas_limit = int(args.gas)
+        _exec_buy12.prefund_flag = bool(args.prefund)
+        _exec_buy12(w3, acct, address, args.amount_in, no_cheaper)
         return
 
     # Withdraw flow (requires owner-enabled V5; redeploy if your V5 has no owner)
