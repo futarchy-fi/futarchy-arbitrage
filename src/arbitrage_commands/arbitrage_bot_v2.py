@@ -1,23 +1,27 @@
 #!/usr/bin/env python3
 """
-Futarchy Arbitrage Bot
+Futarchy Arbitrage Bot V2 - JSON Configuration Support
 
 Monitors price discrepancies between Balancer and Swapr pools and executes
 arbitrage trades via the FutarchyArbExecutorV5 contract.
 
-Usage:
-    python -m src.arbitrage_commands.arbitrage_bot \
+Usage with JSON config:
+    python -m src.arbitrage_commands.arbitrage_bot_v2 \
+        --config config/proposal_0x9590.json
+
+Usage with .env (backward compatible):
+    python -m src.arbitrage_commands.arbitrage_bot_v2 \
         --env .env.0x9590dAF4d5cd4009c3F9767C5E7668175cFd37CF \
         --amount 0.01 \
         --interval 120 \
         --tolerance 0.04 \
-        --min-profit -0.01 \
-        --dry-run
+        --min-profit -0.01
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 import time
@@ -25,7 +29,7 @@ import subprocess
 import re
 from decimal import Decimal
 from pathlib import Path
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Dict, Any
 
 from dotenv import load_dotenv
 from web3 import Web3
@@ -36,31 +40,222 @@ from helpers.balancer_price import get_pool_price as bal_price
 from config.network import DEFAULT_RPC_URLS
 
 
-class ArbitrageBot:
-    """Monitors and executes futarchy arbitrage opportunities."""
+class ConfigManager:
+    """Manages configuration from both JSON and environment sources."""
     
-    def __init__(self, env_file: Optional[str] = None):
-        """Initialize the bot with environment configuration."""
-        self.load_environment(env_file)
-        self.w3 = self.create_web3()
-        self.validate_environment()
-        self.setup_account()
-        self.setup_token_contracts()
+    def __init__(self, config_path: Optional[str] = None, env_file: Optional[str] = None):
+        """Initialize configuration from JSON or environment file."""
+        self.config = {}
+        self.env_file = env_file
         
-    def load_environment(self, env_file: Optional[str]) -> None:
-        """Load environment variables from file."""
+        if config_path:
+            self.load_json_config(config_path)
+        elif env_file:
+            self.load_env_config(env_file)
+        else:
+            # Try to load from default locations
+            self.load_default_config()
+    
+    def load_json_config(self, config_path: str) -> None:
+        """Load configuration from JSON file."""
+        with open(config_path, 'r') as f:
+            self.config = json.load(f)
+            
+    def load_env_config(self, env_file: str) -> None:
+        """Load configuration from .env file and map to JSON structure."""
+        # Load base .env if exists
         base_env = Path(".env")
         if base_env.exists():
             load_dotenv(base_env)
         if env_file:
             load_dotenv(env_file)
-            self.env_file = env_file
-        else:
-            self.env_file = None
             
+        # Map env variables to config structure
+        self.config = self._map_env_to_config()
+    
+    def load_default_config(self) -> None:
+        """Try to load from default locations."""
+        # Check for JSON configs in config directory
+        config_dir = Path("config")
+        if config_dir.exists():
+            json_files = list(config_dir.glob("proposal_*.json"))
+            if json_files:
+                self.load_json_config(str(json_files[0]))
+                return
+        
+        # Fall back to environment
+        base_env = Path(".env")
+        if base_env.exists():
+            load_dotenv(base_env)
+        self.config = self._map_env_to_config()
+    
+    def _map_env_to_config(self) -> Dict[str, Any]:
+        """Map environment variables to JSON config structure."""
+        return {
+            "network": {
+                "rpc_url": os.getenv("RPC_URL"),
+                "chain_id": int(os.getenv("CHAIN_ID", "100"))
+            },
+            "wallet": {
+                "private_key": os.getenv("PRIVATE_KEY")
+            },
+            "contracts": {
+                "executor_v5": os.getenv("FUTARCHY_ARB_EXECUTOR_V5") or os.getenv("EXECUTOR_V5_ADDRESS"),
+                "routers": {
+                    "balancer": os.getenv("BALANCER_ROUTER_ADDRESS"),
+                    "balancer_vault": os.getenv("BALANCER_VAULT_ADDRESS") or os.getenv("BALANCER_VAULT_V3_ADDRESS"),
+                    "swapr": os.getenv("SWAPR_ROUTER_ADDRESS"),
+                    "futarchy": os.getenv("FUTARCHY_ROUTER_ADDRESS")
+                }
+            },
+            "proposal": {
+                "address": os.getenv("FUTARCHY_PROPOSAL_ADDRESS"),
+                "tokens": {
+                    "currency": {
+                        "address": os.getenv("SDAI_TOKEN_ADDRESS", "0xaf204776c7245bF4147c2612BF6e5972Ee483701"),
+                        "symbol": "sDAI"
+                    },
+                    "company": {
+                        "address": os.getenv("COMPANY_TOKEN_ADDRESS", "0x9C58BAcC331c9aa871AFD802DB6379a98e80CEdb"),
+                        "symbol": "GNO"
+                    },
+                    "yes_currency": {
+                        "address": os.getenv("SWAPR_SDAI_YES_ADDRESS")
+                    },
+                    "no_currency": {
+                        "address": os.getenv("SWAPR_SDAI_NO_ADDRESS")
+                    },
+                    "yes_company": {
+                        "address": os.getenv("SWAPR_GNO_YES_ADDRESS")
+                    },
+                    "no_company": {
+                        "address": os.getenv("SWAPR_GNO_NO_ADDRESS")
+                    }
+                },
+                "pools": {
+                    "balancer_company_currency": {
+                        "address": os.getenv("BALANCER_POOL_ADDRESS")
+                    },
+                    "swapr_yes_company_yes_currency": {
+                        "address": os.getenv("SWAPR_POOL_YES_ADDRESS")
+                    },
+                    "swapr_no_company_no_currency": {
+                        "address": os.getenv("SWAPR_POOL_NO_ADDRESS")
+                    },
+                    "swapr_yes_currency_currency": {
+                        "address": os.getenv("SWAPR_POOL_PRED_YES_ADDRESS")
+                    },
+                    "swapr_no_currency_currency": {
+                        "address": os.getenv("SWAPR_POOL_PRED_NO_ADDRESS")
+                    }
+                }
+            }
+        }
+    
+    def get(self, path: str, default: Any = None) -> Any:
+        """Get a value from config using dot notation path."""
+        keys = path.split('.')
+        value = self.config
+        for key in keys:
+            if isinstance(value, dict):
+                value = value.get(key)
+                if value is None:
+                    return default
+            else:
+                return default
+        return value
+    
+    def set_runtime_params(self, amount: Optional[float] = None, 
+                          interval: Optional[int] = None,
+                          tolerance: Optional[float] = None,
+                          min_profit: Optional[float] = None) -> None:
+        """Override runtime parameters from command line."""
+        if "bot" not in self.config:
+            self.config["bot"] = {"run_options": {}}
+        if "run_options" not in self.config["bot"]:
+            self.config["bot"]["run_options"] = {}
+            
+        if amount is not None:
+            self.config["bot"]["run_options"]["amount"] = amount
+        if interval is not None:
+            self.config["bot"]["run_options"]["interval_seconds"] = interval
+        if tolerance is not None:
+            self.config["bot"]["run_options"]["tolerance"] = tolerance
+        if min_profit is not None:
+            self.config["bot"]["run_options"]["min_profit"] = min_profit
+    
+    def to_env_dict(self) -> Dict[str, str]:
+        """Convert config back to environment variable format for subprocess."""
+        env_dict = {}
+        
+        # Network and wallet
+        if self.get("network.rpc_url"):
+            env_dict["RPC_URL"] = self.get("network.rpc_url")
+        if self.get("network.chain_id"):
+            env_dict["CHAIN_ID"] = str(self.get("network.chain_id"))
+        if self.get("wallet.private_key"):
+            env_dict["PRIVATE_KEY"] = self.get("wallet.private_key")
+            
+        # Contracts
+        if self.get("contracts.executor_v5"):
+            env_dict["FUTARCHY_ARB_EXECUTOR_V5"] = self.get("contracts.executor_v5")
+        if self.get("contracts.routers.balancer"):
+            env_dict["BALANCER_ROUTER_ADDRESS"] = self.get("contracts.routers.balancer")
+        if self.get("contracts.routers.balancer_vault"):
+            env_dict["BALANCER_VAULT_ADDRESS"] = self.get("contracts.routers.balancer_vault")
+        if self.get("contracts.routers.swapr"):
+            env_dict["SWAPR_ROUTER_ADDRESS"] = self.get("contracts.routers.swapr")
+        if self.get("contracts.routers.futarchy"):
+            env_dict["FUTARCHY_ROUTER_ADDRESS"] = self.get("contracts.routers.futarchy")
+            
+        # Proposal and tokens
+        if self.get("proposal.address"):
+            env_dict["FUTARCHY_PROPOSAL_ADDRESS"] = self.get("proposal.address")
+        if self.get("proposal.tokens.currency.address"):
+            env_dict["SDAI_TOKEN_ADDRESS"] = self.get("proposal.tokens.currency.address")
+        if self.get("proposal.tokens.company.address"):
+            env_dict["COMPANY_TOKEN_ADDRESS"] = self.get("proposal.tokens.company.address")
+        if self.get("proposal.tokens.yes_currency.address"):
+            env_dict["SWAPR_SDAI_YES_ADDRESS"] = self.get("proposal.tokens.yes_currency.address")
+        if self.get("proposal.tokens.no_currency.address"):
+            env_dict["SWAPR_SDAI_NO_ADDRESS"] = self.get("proposal.tokens.no_currency.address")
+        if self.get("proposal.tokens.yes_company.address"):
+            env_dict["SWAPR_GNO_YES_ADDRESS"] = self.get("proposal.tokens.yes_company.address")
+        if self.get("proposal.tokens.no_company.address"):
+            env_dict["SWAPR_GNO_NO_ADDRESS"] = self.get("proposal.tokens.no_company.address")
+            
+        # Pools
+        if self.get("proposal.pools.balancer_company_currency.address"):
+            env_dict["BALANCER_POOL_ADDRESS"] = self.get("proposal.pools.balancer_company_currency.address")
+        if self.get("proposal.pools.swapr_yes_company_yes_currency.address"):
+            env_dict["SWAPR_POOL_YES_ADDRESS"] = self.get("proposal.pools.swapr_yes_company_yes_currency.address")
+        if self.get("proposal.pools.swapr_no_company_no_currency.address"):
+            env_dict["SWAPR_POOL_NO_ADDRESS"] = self.get("proposal.pools.swapr_no_company_no_currency.address")
+        if self.get("proposal.pools.swapr_yes_currency_currency.address"):
+            env_dict["SWAPR_POOL_PRED_YES_ADDRESS"] = self.get("proposal.pools.swapr_yes_currency_currency.address")
+        if self.get("proposal.pools.swapr_no_currency_currency.address"):
+            env_dict["SWAPR_POOL_PRED_NO_ADDRESS"] = self.get("proposal.pools.swapr_no_currency_currency.address")
+            
+        return env_dict
+
+
+class ArbitrageBot:
+    """Monitors and executes futarchy arbitrage opportunities."""
+    
+    def __init__(self, config: ConfigManager):
+        """Initialize the bot with configuration."""
+        self.config = config
+        self.w3 = self.create_web3()
+        self.validate_configuration()
+        self.setup_account()
+        self.setup_token_contracts()
+        
     def create_web3(self) -> Web3:
         """Create Web3 connection."""
-        rpc_url = os.getenv("RPC_URL", DEFAULT_RPC_URLS[0])
+        rpc_url = self.config.get("network.rpc_url")
+        if not rpc_url:
+            rpc_url = DEFAULT_RPC_URLS[0]
+            
         w3 = Web3(Web3.HTTPProvider(rpc_url))
         
         # Add POA middleware if needed
@@ -81,9 +276,9 @@ class ArbitrageBot:
     
     def setup_account(self) -> None:
         """Setup account from private key and get executor address."""
-        private_key = os.getenv("PRIVATE_KEY")
+        private_key = self.config.get("wallet.private_key")
         if not private_key:
-            raise SystemExit("Missing PRIVATE_KEY")
+            raise SystemExit("Missing private key in configuration")
         self.account = Account.from_key(private_key)
         self.wallet_address = self.account.address
         
@@ -92,12 +287,12 @@ class ArbitrageBot:
         print(f"Monitoring executor contract: {self.executor_address}")
     
     def get_executor_address(self) -> str:
-        """Get the executor contract address from env or deployment files."""
+        """Get the executor contract address from config or deployment files."""
         import glob
         import json
         
-        # Try environment variables first
-        executor = os.getenv("FUTARCHY_ARB_EXECUTOR_V5") or os.getenv("EXECUTOR_V5_ADDRESS")
+        # Try configuration first
+        executor = self.config.get("contracts.executor_v5")
         if executor:
             return self.w3.to_checksum_address(executor)
             
@@ -130,43 +325,48 @@ class ArbitrageBot:
         
         # Setup token contracts
         self.tokens = {}
-        token_addresses = {
-            "sDAI": os.getenv("SDAI_TOKEN_ADDRESS", "0xaf204776c7245bF4147c2612BF6e5972Ee483701"),
-            "GNO": os.getenv("COMPANY_TOKEN_ADDRESS", "0x9C58BAcC331c9aa871AFD802DB6379a98e80CEdb"),
-            "YES_GNO": os.getenv("SWAPR_GNO_YES_ADDRESS"),
-            "NO_GNO": os.getenv("SWAPR_GNO_NO_ADDRESS"),
-            "YES_sDAI": os.getenv("SWAPR_SDAI_YES_ADDRESS"),
-            "NO_sDAI": os.getenv("SWAPR_SDAI_NO_ADDRESS")
+        token_mapping = {
+            "sDAI": "proposal.tokens.currency.address",
+            "GNO": "proposal.tokens.company.address",
+            "YES_GNO": "proposal.tokens.yes_company.address",
+            "NO_GNO": "proposal.tokens.no_company.address",
+            "YES_sDAI": "proposal.tokens.yes_currency.address",
+            "NO_sDAI": "proposal.tokens.no_currency.address"
         }
         
-        for name, addr in token_addresses.items():
+        for name, path in token_mapping.items():
+            addr = self.config.get(path)
             if addr:
                 self.tokens[name] = self.w3.eth.contract(
                     address=self.w3.to_checksum_address(addr),
                     abi=erc20_abi
                 )
         
-    def validate_environment(self) -> None:
-        """Ensure all required environment variables are set."""
-        required = [
-            "SWAPR_POOL_YES_ADDRESS",
-            "SWAPR_POOL_PRED_YES_ADDRESS", 
-            "SWAPR_POOL_NO_ADDRESS",
-            "BALANCER_POOL_ADDRESS",
-            "PRIVATE_KEY",
-            "RPC_URL"
+    def validate_configuration(self) -> None:
+        """Ensure all required configuration values are set."""
+        required_paths = [
+            "proposal.pools.swapr_yes_company_yes_currency.address",
+            "proposal.pools.swapr_yes_currency_currency.address",
+            "proposal.pools.swapr_no_company_no_currency.address",
+            "proposal.pools.balancer_company_currency.address",
+            "wallet.private_key",
+            "network.rpc_url"
         ]
         
-        missing = [var for var in required if not os.getenv(var)]
+        missing = []
+        for path in required_paths:
+            if not self.config.get(path):
+                missing.append(path)
+                
         if missing:
-            raise SystemExit(f"Missing required environment variables: {', '.join(missing)}")
+            raise SystemExit(f"Missing required configuration: {', '.join(missing)}")
             
     def fetch_prices(self) -> dict:
         """Fetch current prices from all pools."""
-        addr_yes = os.getenv("SWAPR_POOL_YES_ADDRESS")
-        addr_pred_yes = os.getenv("SWAPR_POOL_PRED_YES_ADDRESS")
-        addr_no = os.getenv("SWAPR_POOL_NO_ADDRESS")
-        addr_bal = os.getenv("BALANCER_POOL_ADDRESS")
+        addr_yes = self.config.get("proposal.pools.swapr_yes_company_yes_currency.address")
+        addr_pred_yes = self.config.get("proposal.pools.swapr_yes_currency_currency.address")
+        addr_no = self.config.get("proposal.pools.swapr_no_company_no_currency.address")
+        addr_bal = self.config.get("proposal.pools.balancer_company_currency.address")
         
         # Fetch Swapr prices (YES and NO pools have GNO as token1)
         yes_price, yes_base, yes_quote = swapr_price(self.w3, addr_yes)
@@ -274,7 +474,6 @@ class ArbitrageBot:
     
     def parse_tx_hash(self, output: str) -> Optional[str]:
         """Parse transaction hash from executor output."""
-        # Look for patterns like "Tx sent: 0x..." or "Tx sent: abc123..."
         patterns = [
             r"Tx sent:\s*(?:0x)?([a-fA-F0-9]{64})",
             r"Transaction hash:\s*(?:0x)?([a-fA-F0-9]{64})",
@@ -285,7 +484,6 @@ class ArbitrageBot:
             match = re.search(pattern, output, re.IGNORECASE)
             if match:
                 tx_hash = match.group(1)
-                # Ensure it starts with 0x
                 if not tx_hash.startswith('0x'):
                     tx_hash = '0x' + tx_hash
                 return tx_hash
@@ -308,9 +506,6 @@ class ArbitrageBot:
             "--min-profit", str(min_profit)
         ]
         
-        if self.env_file:
-            cmd.extend(["--env", self.env_file])
-            
         if prefund:
             cmd.append("--prefund")
             
@@ -321,12 +516,17 @@ class ArbitrageBot:
         print(f"\nExecuting arbitrage: {flow.upper()} flow, {cheaper.upper()} cheaper")
         print(f"Command: {' '.join(cmd)}")
         
+        # Create environment with all necessary variables
+        env = os.environ.copy()
+        env.update(self.config.to_env_dict())
+        
         try:
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=120  # 2 minute timeout
+                timeout=120,  # 2 minute timeout
+                env=env
             )
             
             # Parse transaction hash from output
@@ -361,14 +561,20 @@ class ArbitrageBot:
             print(f"✗ Error executing trade: {e}")
             return False, None
             
-    def run_loop(self, amount: float, interval: int, tolerance: float, 
-                 min_profit: float, dry_run: bool, prefund: bool) -> None:
+    def run_loop(self, dry_run: bool = False, prefund: bool = False) -> None:
         """Main monitoring loop."""
+        # Get runtime parameters from config
+        amount = self.config.get("bot.run_options.amount", 0.01)
+        interval = self.config.get("bot.run_options.interval_seconds", 120)
+        tolerance = self.config.get("bot.run_options.tolerance", 0.04)
+        min_profit = self.config.get("bot.run_options.min_profit", 0.0)
+        
         print(f"\n🤖 Starting Futarchy Arbitrage Bot")
-        print(f"   Amount:      {amount} sDAI")
+        print(f"   Proposal:    {self.config.get('proposal.address', 'N/A')}")
+        print(f"   Amount:      {amount} {self.config.get('proposal.tokens.currency.symbol', 'sDAI')}")
         print(f"   Interval:    {interval} seconds")
         print(f"   Tolerance:   {tolerance}")
-        print(f"   Min Profit:  {min_profit} sDAI")
+        print(f"   Min Profit:  {min_profit}")
         print(f"   Mode:        {'DRY RUN' if dry_run else 'LIVE'}")
         print(f"   Prefund:     {prefund}")
         print("\nPress Ctrl+C to stop\n")
@@ -391,7 +597,7 @@ class ArbitrageBot:
                     # Get balances before trade
                     if not dry_run:
                         print("\n--- Pre-trade balances (Executor Contract) ---")
-                        balances_before = self.get_balances()  # Executor contract balances
+                        balances_before = self.get_balances()
                         sdai_before = balances_before.get("sDAI", 0)
                         print(f"  sDAI: {sdai_before:.6f}")
                         self.check_residual_balances(balances_before)
@@ -409,7 +615,7 @@ class ArbitrageBot:
                     if success and not dry_run:
                         # Get balances after trade
                         print("\n--- Post-trade balances (Executor Contract) ---")
-                        balances_after = self.get_balances()  # Executor contract balances
+                        balances_after = self.get_balances()
                         sdai_after = balances_after.get("sDAI", 0)
                         sdai_change = sdai_after - sdai_before
                         
@@ -463,37 +669,44 @@ class ArbitrageBot:
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        description="Futarchy arbitrage bot that monitors and executes trades"
+        description="Futarchy arbitrage bot with JSON configuration support"
     )
-    parser.add_argument(
+    
+    # Configuration source (mutually exclusive)
+    config_group = parser.add_mutually_exclusive_group()
+    config_group.add_argument(
+        "--config",
+        help="Path to JSON configuration file"
+    )
+    config_group.add_argument(
         "--env", 
         dest="env_file",
-        help="Path to .env file with configuration"
+        help="Path to .env file with configuration (backward compatibility)"
     )
+    
+    # Runtime parameters (can override config)
     parser.add_argument(
         "--amount",
         type=float,
-        required=True,
-        help="Amount of sDAI to use for trades"
+        help="Amount of base currency to use for trades (overrides config)"
     )
     parser.add_argument(
         "--interval",
         type=int,
-        required=True,
-        help="Seconds between price checks"
+        help="Seconds between price checks (overrides config)"
     )
     parser.add_argument(
         "--tolerance",
         type=float,
-        required=True,
-        help="Minimum price deviation to trigger trade"
+        help="Minimum price deviation to trigger trade (overrides config)"
     )
     parser.add_argument(
         "--min-profit",
         type=float,
-        default=0.0,
-        help="Minimum profit required (can be negative for testing)"
+        help="Minimum profit required (can be negative for testing, overrides config)"
     )
+    
+    # Execution flags
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -507,20 +720,44 @@ def main():
     
     args = parser.parse_args()
     
-    # Create and run bot
+    # Load configuration
     try:
-        bot = ArbitrageBot(args.env_file)
+        config = ConfigManager(config_path=args.config, env_file=args.env_file)
+        
+        # Override runtime parameters if provided
+        config.set_runtime_params(
+            amount=args.amount,
+            interval=args.interval,
+            tolerance=args.tolerance,
+            min_profit=args.min_profit
+        )
+        
+        # Validate we have required runtime parameters
+        if not config.get("bot.run_options.amount") and not args.amount:
+            if args.env_file:
+                parser.error("--amount is required when using --env")
+            else:
+                parser.error("bot.run_options.amount not found in config and --amount not provided")
+                
+        if not config.get("bot.run_options.interval_seconds") and not args.interval:
+            if args.env_file:
+                parser.error("--interval is required when using --env")
+            else:
+                parser.error("bot.run_options.interval_seconds not found in config and --interval not provided")
+                
+        if not config.get("bot.run_options.tolerance") and not args.tolerance:
+            if args.env_file:
+                parser.error("--tolerance is required when using --env")
+            else:
+                parser.error("bot.run_options.tolerance not found in config and --tolerance not provided")
+        
+        # Create and run bot
+        bot = ArbitrageBot(config)
+        bot.run_loop(dry_run=args.dry_run, prefund=args.prefund)
+        
     except Exception as e:
         print(f"Failed to initialize bot: {e}")
         sys.exit(1)
-    bot.run_loop(
-        amount=args.amount,
-        interval=args.interval,
-        tolerance=args.tolerance,
-        min_profit=args.min_profit,
-        dry_run=args.dry_run,
-        prefund=args.prefund
-    )
 
 
 if __name__ == "__main__":
