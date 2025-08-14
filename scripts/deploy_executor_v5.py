@@ -41,6 +41,30 @@ def require_env(var: str) -> str:
     return v
 
 
+def _eip1559_fees(w3: Web3) -> dict:
+    """Return EIP-1559 fee fields or a minimally bumped legacy gasPrice.
+
+    - On EIP-1559 chains: set a tiny priority fee (default 1 wei) and
+      maxFeePerGas = baseFee * multiplier + tip (multiplier default 2x).
+    - On legacy chains: return gasPrice + bump (default +1 wei).
+    Tunables via env:
+      PRIORITY_FEE_WEI, MAX_FEE_MULTIPLIER, MIN_GAS_PRICE_BUMP_WEI
+    """
+    try:
+        latest = w3.eth.get_block("latest")
+        base_fee = latest.get("baseFeePerGas")
+    except Exception:
+        base_fee = None
+    if base_fee is not None:
+        tip = int(os.getenv("PRIORITY_FEE_WEI", "1"))
+        mult = int(os.getenv("MAX_FEE_MULTIPLIER", "2"))
+        max_fee = int(base_fee) * mult + tip
+        return {"maxFeePerGas": int(max_fee), "maxPriorityFeePerGas": int(tip)}
+    # Legacy fallback
+    bump = int(os.getenv("MIN_GAS_PRICE_BUMP_WEI", "1"))
+    return {"gasPrice": int(w3.eth.gas_price) + bump}
+
+
 def run(cmd: list[str]) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, check=True, capture_output=True, text=True)
 
@@ -141,9 +165,9 @@ def deploy(bytecode: str, abi: list) -> tuple[str, dict, str, str]:
         tx = Contract.constructor().build_transaction({
             "from": account.address,
             "nonce": w3.eth.get_transaction_count(account.address),
-            "gasPrice": w3.eth.gas_price,
             "chainId": chain_id,
         })
+        tx.update(_eip1559_fees(w3))
     else:
         # Backward compatibility with 3-arg constructor
         futarchy_router = require_env("FUTARCHY_ROUTER_ADDRESS")
@@ -152,9 +176,9 @@ def deploy(bytecode: str, abi: list) -> tuple[str, dict, str, str]:
         tx = Contract.constructor(futarchy_router, swapr_router, proposal).build_transaction({
             "from": account.address,
             "nonce": w3.eth.get_transaction_count(account.address),
-            "gasPrice": w3.eth.gas_price,
             "chainId": chain_id,
         })
+        tx.update(_eip1559_fees(w3))
 
     # Estimate gas with a buffer
     try:
