@@ -45,15 +45,36 @@ interface IAlgebraSwapRouter {
         payable
         returns (uint256 amountOut);
 
-    // NOTE: Swapr/Algebra encodes ExactOutputSingle with tokenOut first (differs from some V3 layouts).
+    // NOTE: Swapr/Algebra exactOutputSingle expects tokenIn first, then tokenOut (no fee field).
     struct ExactOutputSingleParams {
-        address tokenOut;
         address tokenIn;
+        address tokenOut;
         address recipient;
         uint256 deadline;
         uint256 amountOut;
         uint256 amountInMaximum;
         uint160 limitSqrtPrice; // 0 for “no limit”
+    }
+    function exactOutputSingle(ExactOutputSingleParams calldata params)
+        external
+        payable
+        returns (uint256 amountIn);
+}
+
+interface IUniswapV3Pool {
+    function fee() external view returns (uint24);
+}
+
+interface ISwapRouterV3ExactOutput {
+    struct ExactOutputSingleParams {
+        address tokenIn;
+        address tokenOut;
+        uint24  fee;
+        address recipient;
+        uint256 deadline;
+        uint256 amountOut;
+        uint256 amountInMaximum;
+        uint160 sqrtPriceLimitX96;
     }
     function exactOutputSingle(ExactOutputSingleParams calldata params)
         external
@@ -167,11 +188,12 @@ contract FutarchyArbExecutorV5 {
         emit SwaprExactInExecuted(swapr_router, tokenIn, tokenOut, amountIn, amountOut);
     }
 
-    /// Algebra/Swapr: approve and execute exact-output single hop
+    /// Swapr/UniswapV3: approve and execute exact-output single hop (requires fee tier)
     function _swaprExactOut(
         address swapr_router,
         address tokenIn,
         address tokenOut,
+        uint24 fee,
         uint256 amountOut,
         uint256 maxIn
     ) internal returns (uint256 amountIn) {
@@ -179,17 +201,28 @@ contract FutarchyArbExecutorV5 {
         require(tokenIn != address(0) && tokenOut != address(0), "token=0");
         if (amountOut == 0) return 0;
         _ensureMaxAllowance(IERC20(tokenIn), swapr_router);
-        IAlgebraSwapRouter.ExactOutputSingleParams memory p = IAlgebraSwapRouter.ExactOutputSingleParams({
-            tokenOut: tokenOut,
+        ISwapRouterV3ExactOutput.ExactOutputSingleParams memory p = ISwapRouterV3ExactOutput.ExactOutputSingleParams({
             tokenIn: tokenIn,
+            tokenOut: tokenOut,
+            fee: fee,
             recipient: address(this),
             deadline: block.timestamp,
             amountOut: amountOut,
             amountInMaximum: maxIn,
-            limitSqrtPrice: 0
+            sqrtPriceLimitX96: 0
         });
-        amountIn = IAlgebraSwapRouter(swapr_router).exactOutputSingle(p);
+        amountIn = ISwapRouterV3ExactOutput(swapr_router).exactOutputSingle(p);
         emit SwaprExactOutExecuted(swapr_router, tokenIn, tokenOut, amountOut, amountIn);
+    }
+
+    uint24 internal constant DEFAULT_V3_FEE = 100; // 0.01%
+    function _poolFeeOrDefault(address pool) internal view returns (uint24) {
+        if (pool == address(0)) return DEFAULT_V3_FEE;
+        try IUniswapV3Pool(pool).fee() returns (uint24 f) {
+            return f == 0 ? DEFAULT_V3_FEE : f;
+        } catch {
+            return DEFAULT_V3_FEE;
+        }
     }
 
     /**
@@ -202,13 +235,15 @@ contract FutarchyArbExecutorV5 {
         address balancer_vault,          // reserved for future steps
         address comp,                    // reserved for future steps
         address cur,
-        bool yes_has_lower_price,
+        bool yes_has_higher_price,
         address futarchy_router,
         address proposal,
         address yes_comp,
         address no_comp,
         address yes_cur,
         address no_cur,
+        address yes_pool,
+        address no_pool,
         address swapr_router,
         uint256 amount_sdai_in
     ) external {
@@ -230,14 +265,16 @@ contract FutarchyArbExecutorV5 {
         require(IERC20(no_cur).balanceOf(address(this))  >= amount_sdai_in, "insufficient NO_cur");
 
         // Step 2 & 3: buy comps symmetrically
-        if (yes_has_lower_price) {
+        uint24 yesFee = _poolFeeOrDefault(yes_pool);
+        uint24 noFee  = _poolFeeOrDefault(no_pool);
+        if (yes_has_higher_price) {
             uint256 yesCompOut = _swaprExactIn(swapr_router, yes_cur, yes_comp, amount_sdai_in, 0);
             require(yesCompOut > 0, "YES exact-in produced zero");
-            _swaprExactOut(swapr_router, no_cur, no_comp, yesCompOut, amount_sdai_in);
+            _swaprExactOut(swapr_router, no_cur, no_comp, noFee, yesCompOut, amount_sdai_in);
         } else {
             uint256 noCompOut = _swaprExactIn(swapr_router, no_cur, no_comp, amount_sdai_in, 0);
             require(noCompOut > 0, "NO exact-in produced zero");
-            _swaprExactOut(swapr_router, yes_cur, yes_comp, noCompOut, amount_sdai_in);
+            _swaprExactOut(swapr_router, yes_cur, yes_comp, yesFee, noCompOut, amount_sdai_in);
         }
     }
 
