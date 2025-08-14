@@ -129,6 +129,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--min-profit", dest="min_profit", default="0", help="Required profit in ether units (default 0)")
     p.add_argument("--min-profit-wei", dest="min_profit_wei", default=None, help="Required profit in wei (overrides --min-profit)")
     p.add_argument("--prefund", action="store_true", help="Transfer --amount-in sDAI from your EOA to the V5 executor before calling")
+    p.add_argument("--with-sell", action="store_true", help="After merge (step 4), sell COMP->sDAI on Balancer with on-chain mergeAmt.")
     # BUY steps 4–6 (optional): merge comps and sell COMP->sDAI on Balancer.
     # You must provide the COMP amount to sell (exactAmountIn for Balancer).
     p.add_argument("--sell-comp-amount", dest="sell_comp_amount", default=None,
@@ -211,6 +212,19 @@ def _encode_sell_company_ops(w3: Web3, router_addr: str, amount_in_wei: int, min
         [path], int(MAX_DEADLINE), False, b""
     )._encode_transaction_data()
     return calldata
+
+def _encode_sell_company_ops_placeholder(w3: Web3, router_addr: str) -> str:
+    """
+    Build swapExactIn calldata for COMP->sDAI with exactAmountIn=0 (placeholder).
+    The contract replaces the amount with mergeAmt on-chain.
+    """
+    router = w3.eth.contract(address=w3.to_checksum_address(router_addr), abi=BALANCER_ROUTER_ABI)
+    steps = [
+        (BUFFER_POOL, BUFFER_POOL, True),  # COMP -> buffer (buffer hop)
+        (FINAL_POOL, SDAI, False),         # buffer -> sDAI
+    ]
+    path = (COMPANY_TOKEN, steps, 0, 0)   # exactAmountIn=0, minAmountOut=0
+    return router.get_function_by_name("swapExactIn")([path], int(MAX_DEADLINE), False, b"")._encode_transaction_data()
 
 
 _ERC20_MIN_ABI = [
@@ -453,7 +467,10 @@ def _exec_buy12(
     pred_yes_pool   = _addr_or_zero(w3, "SWAPR_SDAI_YES_POOL", "PRED_YES_POOL")
     pred_no_pool    = _addr_or_zero(w3, "SWAPR_SDAI_NO_POOL",  "PRED_NO_POOL")
 
-    # Optional: prepare Balancer sell ops (COMP -> sDAI) for steps 4–6 if a COMP amount was provided.
+    # Optional: prepare Balancer sell ops (COMP -> sDAI) for steps 4–6
+    # Priority:
+    #  1) Explicit COMP amount if provided
+    #  2) Otherwise, always include placeholder (contract overrides amount)
     sell_ops_hex: str = "0x"
     sell_comp_amount_wei = getattr(_exec_buy12, "sell_comp_amount_wei", None)
     sell_min_out_wei     = getattr(_exec_buy12, "sell_min_out_wei", 0)
@@ -464,6 +481,11 @@ def _exec_buy12(
             )
         except Exception as e:
             raise SystemExit(f"Failed to encode Balancer sell ops (COMP->sDAI): {e}")
+    else:
+        try:
+            sell_ops_hex = _encode_sell_company_ops_placeholder(w3, balancer_router)
+        except Exception as e:
+            raise SystemExit(f"Failed to encode Balancer sell ops placeholder (COMP->sDAI): {e}")
 
     # Ensure the executor is funded with sDAI to split
     sdai_addr = os.getenv("SDAI_TOKEN_ADDRESS", SDAI)
@@ -657,6 +679,7 @@ def main():
             _exec_buy12.sell_min_out_wei = w3.to_wei(Decimal(str(args.sell_min_out)), "ether")
         else:
             _exec_buy12.sell_min_out_wei = 0
+        _exec_buy12.with_sell_flag = bool(args.with_sell)
 
         _exec_buy12(w3, acct, address, args.amount_in, no_cheaper)
         return
