@@ -587,12 +587,11 @@ def main():
     
     # Execute BUY flow (split + dual swaps + merge)
     elif args.flow == "buy":
-        no_cheaper = not yes_cheaper
         _exec_buy12.force_send_flag = bool(args.force_send)
         _exec_buy12.force_gas_limit = int(args.gas)
         _exec_buy12.prefund_flag = bool(args.prefund)
         _exec_buy12.min_out_final_wei = min_profit_wei
-        _exec_buy12(w3, acct, address, amount_in, no_cheaper)
+        _exec_buy12(w3, acct, address, amount_in, yes_cheaper)
     
     else:
         raise SystemExit("Invalid flow. Use --flow sell or --flow buy")
