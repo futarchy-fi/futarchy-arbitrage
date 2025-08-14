@@ -40,7 +40,7 @@ from web3 import Web3
 from eth_account import Account
 
 # Reuse Balancer helpers for encoding swapExactIn calldata (module under src/trades)
-from src.trades.balancer_swap import (
+from src.helpers.balancer_swap import (
     BALANCER_ROUTER_ABI,
     SDAI,
     COMPANY_TOKEN,
@@ -129,6 +129,16 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--min-profit", dest="min_profit", default="0", help="Required profit in ether units (default 0)")
     p.add_argument("--min-profit-wei", dest="min_profit_wei", default=None, help="Required profit in wei (overrides --min-profit)")
     p.add_argument("--prefund", action="store_true", help="Transfer --amount-in sDAI from your EOA to the V5 executor before calling")
+    # BUY steps 4–6 (optional): merge comps and sell COMP->sDAI on Balancer.
+    # You must provide the COMP amount to sell (exactAmountIn for Balancer).
+    p.add_argument("--sell-comp-amount", dest="sell_comp_amount", default=None,
+                   help="COMP amount to sell on Balancer after merge (ether units). Enables BUY steps 4–6.")
+    p.add_argument("--sell-comp-amount-wei", dest="sell_comp_amount_wei", default=None,
+                   help="COMP amount to sell on Balancer (wei). Overrides --sell-comp-amount.")
+    p.add_argument("--sell-min-out", dest="sell_min_out", default=None,
+                   help="Minimum sDAI out when selling COMP (ether units). Default 0 (no on-router minOut).")
+    p.add_argument("--sell-min-out-wei", dest="sell_min_out_wei", default=None,
+                   help="Minimum sDAI out when selling COMP (wei). Overrides --sell-min-out.")
     # Which side is cheaper? (for updated on-chain signatures that branch by price)
     p.add_argument("--side-lower", dest="side_lower", choices=["yes", "no"], help="Cheaper leg selector for exact-in step (overrides --yes-cheaper)")
     p.add_argument("--yes-cheaper", dest="yes_cheaper", action="store_true", help="Alias for --side-lower yes")
@@ -176,6 +186,30 @@ def _encode_buy_company_ops(w3: Web3, router_addr: str, amount_in_wei: int) -> s
     calldata: str = router.get_function_by_name("swapExactIn")(
         [path], int(MAX_DEADLINE), False, b""
     )._encode_transaction_data()  # returns hex str
+    return calldata
+
+def _encode_sell_company_ops(w3: Web3, router_addr: str, amount_in_wei: int, min_amount_out_wei: int = 0) -> str:
+    """
+    Encode Balancer BatchRouter.swapExactIn calldata for **selling Company (COMP) into sDAI**.
+    Mirrors the structure used in src/helpers/balancer_swap.build_sell_gno_to_sdai_swap_tx.
+    """
+    router = w3.eth.contract(address=w3.to_checksum_address(router_addr), abi=BALANCER_ROUTER_ABI)
+    # Two-hop path: COMP -> buffer (buffer hop), buffer -> sDAI
+    steps = [
+        # 1) COMP -> buffer (buffer hop; router expects tokenOut == pool address for buffer)
+        (BUFFER_POOL, BUFFER_POOL, True),
+        # 2) buffer -> sDAI (direct)
+        (FINAL_POOL, SDAI, False),
+    ]
+    path = (
+        COMPANY_TOKEN,       # tokenIn = COMP
+        steps,
+        int(amount_in_wei),  # exactAmountIn  (COMP)
+        int(min_amount_out_wei),  # minAmountOut (sDAI)
+    )
+    calldata: str = router.get_function_by_name("swapExactIn")(
+        [path], int(MAX_DEADLINE), False, b""
+    )._encode_transaction_data()
     return calldata
 
 
@@ -402,7 +436,7 @@ def _exec_buy12(
 
     amount_in_wei = w3.to_wei(Decimal(str(amount_in_eth)), "ether")
     # Addresses (env)
-    balancer_router = require_env("BALANCER_ROUTER_ADDRESS")  # accepted for signature stability; not used in steps 1–3
+    balancer_router = require_env("BALANCER_ROUTER_ADDRESS")  # required if steps 4–6 are engaged
     balancer_vault  = os.getenv("BALANCER_VAULT_ADDRESS") or os.getenv("BALANCER_VAULT_V3_ADDRESS") or ZERO_ADDR
     comp            = os.getenv("COMPANY_TOKEN_ADDRESS", COMPANY_TOKEN)
     cur             = os.getenv("SDAI_TOKEN_ADDRESS", SDAI)
@@ -418,6 +452,18 @@ def _exec_buy12(
     no_pool         = _addr_or_zero(w3, "SWAPR_GNO_NO_POOL",  "NO_COMP_POOL",  "NO_POOL")
     pred_yes_pool   = _addr_or_zero(w3, "SWAPR_SDAI_YES_POOL", "PRED_YES_POOL")
     pred_no_pool    = _addr_or_zero(w3, "SWAPR_SDAI_NO_POOL",  "PRED_NO_POOL")
+
+    # Optional: prepare Balancer sell ops (COMP -> sDAI) for steps 4–6 if a COMP amount was provided.
+    sell_ops_hex: str = "0x"
+    sell_comp_amount_wei = getattr(_exec_buy12, "sell_comp_amount_wei", None)
+    sell_min_out_wei     = getattr(_exec_buy12, "sell_min_out_wei", 0)
+    if sell_comp_amount_wei is not None:
+        try:
+            sell_ops_hex = _encode_sell_company_ops(
+                w3, balancer_router, int(sell_comp_amount_wei), int(sell_min_out_wei or 0)
+            )
+        except Exception as e:
+            raise SystemExit(f"Failed to encode Balancer sell ops (COMP->sDAI): {e}")
 
     # Ensure the executor is funded with sDAI to split
     sdai_addr = os.getenv("SDAI_TOKEN_ADDRESS", SDAI)
@@ -458,7 +504,7 @@ def _exec_buy12(
 
     # ABI-adaptive construction of buy_conditional_arbitrage_balancer call
     values = {
-        "sell_company_ops": "0x",
+        "sell_company_ops": sell_ops_hex,
         "balancer_router":  balancer_router,
         "balancer_vault":   balancer_vault,
         "comp":             comp,
@@ -589,6 +635,7 @@ def main():
         return
 
     # Symmetric BUY steps 1–3 (split + dual swaps)
+    # Optionally extend to steps 4–6 if --sell-comp-amount* provided (merge comps, sell COMP->sDAI on Balancer)
     if args.buy12:
         if not args.amount_in:
             raise SystemExit("--amount-in is required with --buy12 (ether units)")
@@ -596,6 +643,21 @@ def main():
         _exec_buy12.force_send_flag = bool(args.force_send)
         _exec_buy12.force_gas_limit = int(args.gas)
         _exec_buy12.prefund_flag = bool(args.prefund)
+        # Optional: steps 4–6 controls (sell COMP->sDAI on Balancer)
+        if args.sell_comp_amount_wei is not None:
+            _exec_buy12.sell_comp_amount_wei = int(args.sell_comp_amount_wei)
+        elif args.sell_comp_amount is not None:
+            # Assumes COMP has 18 decimals (GNO/Company token uses 18)
+            _exec_buy12.sell_comp_amount_wei = w3.to_wei(Decimal(str(args.sell_comp_amount)), "ether")
+        else:
+            _exec_buy12.sell_comp_amount_wei = None
+        if args.sell_min_out_wei is not None:
+            _exec_buy12.sell_min_out_wei = int(args.sell_min_out_wei)
+        elif args.sell_min_out is not None:
+            _exec_buy12.sell_min_out_wei = w3.to_wei(Decimal(str(args.sell_min_out)), "ether")
+        else:
+            _exec_buy12.sell_min_out_wei = 0
+
         _exec_buy12(w3, acct, address, args.amount_in, no_cheaper)
         return
 
