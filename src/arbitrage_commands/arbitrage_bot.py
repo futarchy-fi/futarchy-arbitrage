@@ -329,31 +329,37 @@ class ArbitrageBot:
                 timeout=120  # 2 minute timeout
             )
             
-            print("\n--- Executor Output ---")
-            print(result.stdout)
-            if result.stderr:
-                print("--- Errors ---")
-                print(result.stderr)
-            print("--- End Output ---")
-            
             # Parse transaction hash from output
             tx_hash = self.parse_tx_hash(result.stdout)
             
             if result.returncode == 0:
                 print("✓ Trade executed successfully")
                 if tx_hash:
-                    print(f"\n🔗 View on GnosisScan: https://gnosisscan.io/tx/{tx_hash}")
+                    print(f"🔗 View on GnosisScan: https://gnosisscan.io/tx/{tx_hash}")
                 return True, tx_hash
             else:
-                print(f"✗ Trade failed with exit code {result.returncode}")
+                # Check if it's a "min profit not met" error which is expected
+                if "min profit not met" in result.stderr:
+                    print("⚠️  Trade skipped: Min profit threshold not met")
+                    return False, None
+                else:
+                    print(f"✗ Trade failed with exit code {result.returncode}")
+                    # Only show error details for unexpected failures
+                    if result.stderr:
+                        # Extract just the error message, not the full trace
+                        error_lines = result.stderr.strip().split('\n')
+                        for line in reversed(error_lines):
+                            if 'Error' in line or 'error' in line or 'Exception' in line:
+                                print(f"   Error: {line.strip()}")
+                                break
                 return False, None
                 
         except subprocess.TimeoutExpired:
             print("✗ Trade execution timed out")
-            return False
+            return False, None
         except Exception as e:
             print(f"✗ Error executing trade: {e}")
-            return False
+            return False, None
             
     def run_loop(self, amount: float, interval: int, tolerance: float, 
                  min_profit: float, dry_run: bool, prefund: bool) -> None:
