@@ -115,6 +115,54 @@ interface IBalancerBatchRouter {
  *      Contract must already custody the input collateral `cur` (e.g., sDAI).
  */
 contract FutarchyArbExecutorV5 {
+    /// ------------------------
+    /// PNK Trading Constants (Gnosis)
+    /// ------------------------
+    /// Fixed addresses used by the PNK buy/sell helper flows.
+    address internal constant TOKEN_SDAI = 0xaf204776c7245bF4147c2612BF6e5972Ee483701;
+    address internal constant TOKEN_WETH = 0x6A023CCd1ff6F2045C3309768eAd9E68F978f6e1;
+    address internal constant TOKEN_PNK  = 0x37b60f4E9A31A64cCc0024dce7D0fD07eAA0F7B3;
+    address internal constant BALANCER_VAULT = 0xBA12222222228d8Ba445958a75a0704d566BF2C8;
+    address internal constant SWAPR_V2_ROUTER = 0xE43e60736b1cb4a75ad25240E2f9a62Bff65c0C0;
+
+    /// Balancer batchSwap GIVEN_IN route: sDAI -> WETH (multi-branch), as observed on-chain.
+    bytes32 internal constant PNK_POOL_1 = 0xa91c413d8516164868f6cca19573fe38f88f5982000200000000000000000157;
+    bytes32 internal constant PNK_POOL_2 = 0x7e5870ac540adfd01a213c829f2231c309623eb10002000000000000000000e9;
+    bytes32 internal constant PNK_POOL_3 = 0x40d2cbc586dd8df50001cdba3f65cd4bbc32d596000200000000000000000154;
+    bytes32 internal constant PNK_POOL_4 = 0x480d4f66cc41a1b6784a53a10890e5ece31d75c000020000000000000000014e;
+    bytes32 internal constant PNK_POOL_5 = 0xa99fd9950b5d5dceeaf4939e221dca8ca9b938ab000100000000000000000025;
+
+    /// Assets order used for the batchSwap indices.
+    /// Index mapping for convenience.
+    address internal constant PNK_ASSET_2 = 0xC0d871bD13eBdf5c4ff059D8243Fb38210608bD6;
+    address internal constant PNK_ASSET_4 = 0xE0eD85F76D9C552478929fab44693E03F0899F23;
+    address internal constant PNK_ASSET_5_GNO = 0x9C58BAcC331c9aa871AFD802DB6379a98e80CEdb;
+    uint256 internal constant PNK_IDX_SDAI = 0;
+    uint256 internal constant PNK_IDX_WETH = 2;
+
+    /// Deadlines
+    uint256 internal constant BALANCER_VAULT_DEADLINE = 9007199254740991; // far-future
+    uint256 internal constant SWAPR_V2_DEADLINE = 3510754692; // far-future
+
+    /// Helper: assets array in the exact order expected by the PNK Balancer route
+    function _pnkAssetsOrder() internal pure returns (address[] memory assets) {
+        assets = new address[](5);
+        assets[0] = TOKEN_SDAI;
+        assets[1] = PNK_ASSET_2;
+        assets[2] = TOKEN_WETH;
+        assets[3] = PNK_ASSET_4;
+        assets[4] = PNK_ASSET_5_GNO; // GNO
+    }
+
+    /// Helper: poolIds array used by the PNK Balancer route (sDAI -> WETH)
+    function _pnkPoolIds() internal pure returns (bytes32[] memory poolIds) {
+        poolIds = new bytes32[](5);
+        poolIds[0] = PNK_POOL_1;
+        poolIds[1] = PNK_POOL_2;
+        poolIds[2] = PNK_POOL_3;
+        poolIds[3] = PNK_POOL_4;
+        poolIds[4] = PNK_POOL_5;
+    }
     // --- Ownership ---
     address public owner;
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
