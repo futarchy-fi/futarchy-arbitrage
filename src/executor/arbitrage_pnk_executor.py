@@ -127,7 +127,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--prefund", action="store_true",
                    help="Transfer sDAI from your wallet to the executor contract before execution")
     p.add_argument("--force-send", action="store_true", help=argparse.SUPPRESS)  # Hidden for advanced use
-    p.add_argument("--gas", dest="gas", type=int, default=1_500_000, help=argparse.SUPPRESS)  # Hidden
+    p.add_argument("--gas", dest="gas", type=int, default=3_000_000, help=argparse.SUPPRESS)  # Hidden
     return p.parse_args()
 
 
