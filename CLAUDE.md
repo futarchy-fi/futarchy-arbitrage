@@ -169,3 +169,65 @@ The bot uses a simulation-first approach:
 2. Simulate transactions to calculate optimal parameters
 3. Execute on-chain only after successful simulation
 4. Each transaction has an associated handler function for state tracking
+
+## Task Tracking in `.claude/tasks`
+
+This repo uses a strict, emoji-based naming scheme for task folders and subtask files. Follow it exactly to keep progress clear and consistent across features.
+
+### Folder Naming (top-level tasks)
+- In Progress: `folder-name ◐`
+- Completed: `folder-name ✅`
+
+Examples for this project:
+- `.claude/tasks/add-pnk-to-v5-bot ◐/` — integrating sDAI↔WETH↔PNK into V5 executor.
+- `.claude/tasks/pnk-sdai-trade ✅/` — finalized docs for the Balancer Vault + Swapr path (sDAI→WETH→PNK).
+
+### Subtask File Naming (inside task folders)
+- Not Started: `subtask-N-description.md`
+- In Progress: `subtask-N-description ◐.md`
+- Completed: `subtask-N-description ✅.md`
+- Paused/Later: `subtask-N-description ⏸️.md`
+- Skipped/Cancelled: `subtask-N-description ❌.md`
+
+Concrete examples (current state):
+```
+.claude/tasks/
+└── add-pnk-to-v5-bot ◐/
+    ├── progress.md
+    ├── subtask-1-constants-and-route ✅.md
+    ├── subtask-2-buy-flow-sdai-weth-pnk ◐.md
+    ├── subtask-3-sell-flow-pnk-weth-sdai ◐.md
+    └── subtask-4-abi-and-usage-shape.md
+```
+
+Suggested examples for other efforts in this repo:
+```
+.claude/tasks/
+├── futarchy-executor-v5-alignment ◐/
+│   ├── subtask-1-gas-semantics ✅.md
+│   ├── subtask-2-signed-min-profit ✅.md
+│   ├── subtask-3-yes-price-flag ◐.md
+│   └── subtask-4-cli-cleanup.md
+└── pnk-sdai-trade ✅/
+    ├── subtask-1-working-route ✅.md
+    ├── subtask-2-scripts-and-usage ✅.md
+    └── subtask-3-operational-notes ✅.md
+```
+
+### Workflow Pattern
+1) Planning
+- Create a descriptive folder under `.claude/tasks/` with no emoji yet, then rename to `◐` when work begins.
+- Break the task into 3–5 numbered subtasks (`subtask-1-…`, `subtask-2-…`, …) aligned to tangible units (e.g., constants, buy flow, sell flow, ABI wiring).
+
+2) Implementation
+- Mark a subtask `◐` when you start it, and `✅` when complete.
+- Keep subtask files concise: objective, steps, acceptance, and current status.
+- Prefer examples tied to this repo (e.g., Balancer Vault `batchSwap` params, Swapr v2 router usage, V5 executor function signatures).
+
+3) Completion
+- When all subtasks are `✅`, rename the task folder to `✅`.
+- Add a brief summary to `progress.md` (or `README.md`) with links to commits/tx hashes if relevant.
+
+### Important
+- Do not rush renames. Before changing a folder or subtask status, scan other folders to maintain a consistent pattern.
+- Keep naming specific and short: e.g., `subtask-2-buy-flow-sdai-weth-pnk` instead of generic names like `subtask-2-implementation`.
