@@ -671,13 +671,22 @@ class ArbitrageBot:
                         if abs(wallet_change) > 0.000001:
                             print(f"\n--- Wallet sDAI: {wallet_sdai_after:.6f} (change: {wallet_change:+.6f}) ---")
                         
-                        # Re-fetch prices to see impact
+                        # Re-fetch prices to see impact (respect BOT_TYPE market comparator)
                         print("\n--- Post-trade prices ---")
                         new_prices = self.fetch_prices()
                         new_ideal = self.calculate_ideal_price(new_prices)
-                        print(f"  Balancer:   {new_prices['bal_price']:.6f}")
-                        print(f"  Ideal:      {new_ideal:.6f}")
-                        print(f"  Deviation:  {abs(new_prices['bal_price'] - new_ideal):.6f}")
+                        post_market = new_prices.get("market_price")
+                        post_label = new_prices.get("market_label", "Market")
+                        if post_market is not None:
+                            print(f"  {post_label}:   {post_market:.6f}")
+                            print(f"  Ideal:      {new_ideal:.6f}")
+                            print(f"  Deviation:  {abs(post_market - new_ideal):.6f}")
+                        else:
+                            # Fallback to Balancer if market unavailable
+                            bal_p = new_prices.get("bal_price") or 0.0
+                            print(f"  Balancer:   {bal_p:.6f}")
+                            print(f"  Ideal:      {new_ideal:.6f}")
+                            print(f"  Deviation:  {abs(bal_p - new_ideal):.6f}")
                         
                         # Summary
                         print(f"\n📊 Trade Summary:")
