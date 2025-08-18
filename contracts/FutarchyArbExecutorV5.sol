@@ -409,6 +409,103 @@ contract FutarchyArbExecutorV5 {
             require(sdaiBal >= minSdaiOut, "min sDAI not met");
         }
     }
+
+    /**
+     * @notice SELL complete arbitrage variant that buys PNK internally (sDAI→WETH→PNK) instead of using Balancer calldata.
+     * @dev Signature mirrors sell_conditional_arbitrage_balancer for compatibility; Step 2 differs only.
+     */
+    function sell_conditional_arbitrage_pnk(
+        bytes calldata buy_company_ops, // ignored in this variant
+        address balancer_router,         // ignored for Step 2 (kept for signature compatibility)
+        address balancer_vault,          // ignored for Step 2 (kept for signature compatibility)
+        address comp,                    // MUST be TOKEN_PNK in this variant
+        address cur,
+        address futarchy_router,
+        address proposal,
+        address yes_comp,
+        address no_comp,
+        address yes_cur,
+        address no_cur,
+        address swapr_router,
+        uint256 amount_sdai_in,
+        int256  min_out_final
+    ) external {
+        // Silence unused params
+        (buy_company_ops); (balancer_router); (balancer_vault);
+
+        // --- Step 1: snapshot collateral ---
+        uint256 initial_cur_balance = IERC20(cur).balanceOf(address(this));
+        emit InitialCollateralSnapshot(cur, initial_cur_balance);
+
+        require(amount_sdai_in > 0, "amount=0");
+        require(comp == TOKEN_PNK, "comp!=PNK");
+        require(futarchy_router != address(0) && proposal != address(0), "router/proposal=0");
+        require(cur != address(0) && yes_comp != address(0) && no_comp != address(0), "addr=0");
+        require(yes_cur != address(0) && no_cur != address(0) && swapr_router != address(0), "addr=0");
+
+        // --- Step 2 (replaced): buy PNK using internal sDAI→WETH→PNK path ---
+        // Uses fixed Balancer route + Swapr v2 router configured in this contract.
+        // minWethOut/minPnkOut set to 0 for simplicity; external callers can constrain via min_out_final if needed.
+        this.buyPnkWithSdai(amount_sdai_in, 0, 0);
+
+        // --- Step 3: verify PNK (comp) acquired ---
+        uint256 compBalance = IERC20(comp).balanceOf(address(this));
+        emit CompositeAcquired(comp, compBalance);
+        require(compBalance > 0, "Failed to acquire composite token");
+
+        // --- Step 4: Split into conditional comps ---
+        if (futarchy_router != address(0) && proposal != address(0)) {
+            _ensureMaxAllowance(IERC20(comp), futarchy_router);
+            IFutarchyRouter(futarchy_router).splitPosition(proposal, comp, compBalance);
+        } else {
+            (bool ok, ) = comp.call(abi.encodeWithSelector(ICompositeLike.split.selector, compBalance));
+            emit CompositeSplitAttempted(comp, compBalance, ok);
+        }
+
+        // --- Step 5: Sell conditional composite → conditional collateral on Swapr (exact-in) ---
+        uint256 yesCompBal = IERC20(yes_comp).balanceOf(address(this));
+        if (yesCompBal > 0) {
+            _swaprExactIn(swapr_router, yes_comp, yes_cur, yesCompBal, 0);
+        }
+        uint256 noCompBal = IERC20(no_comp).balanceOf(address(this));
+        if (noCompBal > 0) {
+            _swaprExactIn(swapr_router, no_comp, no_cur, noCompBal, 0);
+        }
+
+        // --- Step 6: Merge conditional collateral (YES/NO) back into base collateral (cur) ---
+        if (futarchy_router != address(0) && proposal != address(0)) {
+            uint256 yesCurBal = IERC20(yes_cur).balanceOf(address(this));
+            uint256 noCurBal  = IERC20(no_cur).balanceOf(address(this));
+            uint256 mergeAmt  = yesCurBal < noCurBal ? yesCurBal : noCurBal;
+            if (mergeAmt > 0) {
+                // Router will transferFrom both legs; approve both to MAX
+                _ensureMaxAllowance(IERC20(yes_cur), futarchy_router);
+                _ensureMaxAllowance(IERC20(no_cur),  futarchy_router);
+                IFutarchyRouter(futarchy_router).mergePositions(proposal, cur, mergeAmt);
+                emit ConditionalCollateralMerged(futarchy_router, proposal, cur, mergeAmt);
+            }
+        }
+
+        // --- Step 7: Sell any remaining single-sided conditional collateral to base collateral on Swapr ---
+        uint256 yesCurLeft = IERC20(yes_cur).balanceOf(address(this));
+        uint256 noCurLeft  = IERC20(no_cur).balanceOf(address(this));
+        if (yesCurLeft > 0) {
+            _swaprExactIn(swapr_router, yes_cur, cur, yesCurLeft, 0);
+        } else if (noCurLeft > 0) {
+            _swaprExactIn(swapr_router, no_cur,  cur, noCurLeft,  0);
+        }
+
+        // --- Step 8: On-chain profit check in base collateral terms (signed) ---
+        uint256 final_cur_balance = IERC20(cur).balanceOf(address(this));
+        require(
+            final_cur_balance <= uint256(type(int256).max) &&
+            initial_cur_balance <= uint256(type(int256).max),
+            "balance too large"
+        );
+        int256 signedProfit = int256(final_cur_balance) - int256(initial_cur_balance);
+        require(signedProfit >= min_out_final, "min profit not met");
+        emit ProfitVerified(initial_cur_balance, final_cur_balance, min_out_final);
+    }
     // --- Ownership ---
     address public owner;
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
