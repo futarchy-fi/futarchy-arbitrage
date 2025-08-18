@@ -206,7 +206,7 @@ contract FutarchyArbExecutorV5 {
     }
 
     /// ------------------------
-    /// PNK Buy Flow: sDAI -> WETH (Balancer Vault) -> PNK (Swapr)
+    /// PNK Buy Flow: sDAI -> WETH (Balancer Vault, single-branch) -> PNK (Swapr)
     /// ------------------------
     function buyPnkWithSdai(uint256 amountSdaiIn, uint256 minWethOut, uint256 minPnkOut) external {
         require(amountSdaiIn > 0, "amount=0");
@@ -217,41 +217,23 @@ contract FutarchyArbExecutorV5 {
         // Build assets order
         address[] memory assets = _pnkAssetsOrder();
 
-        // Build swaps: two branches converging to WETH (index 2)
-        IBalancerVault.BatchSwapStep[] memory swaps = new IBalancerVault.BatchSwapStep[](5);
-        uint256 half = amountSdaiIn / 2;
-        uint256 other = amountSdaiIn - half;
-        // Branch A: sDAI (0) -> ASSET_2 (1) -> WETH (2)
+        // Build swaps: single branch sDAI (0) -> ASSET_4 (3) -> GNO (4) -> WETH (2)
+        IBalancerVault.BatchSwapStep[] memory swaps = new IBalancerVault.BatchSwapStep[](3);
         swaps[0] = IBalancerVault.BatchSwapStep({
-            poolId: PNK_POOL_1,
-            assetInIndex: 0,
-            assetOutIndex: 1,
-            amount: half,
-            userData: bytes("")
-        });
-        swaps[1] = IBalancerVault.BatchSwapStep({
-            poolId: PNK_POOL_2,
-            assetInIndex: 1,
-            assetOutIndex: 2,
-            amount: 0,
-            userData: bytes("")
-        });
-        // Branch B: sDAI (0) -> ASSET_4 (3) -> ASSET_5 (4) -> WETH (2)
-        swaps[2] = IBalancerVault.BatchSwapStep({
             poolId: PNK_POOL_3,
             assetInIndex: 0,
             assetOutIndex: 3,
-            amount: other,
+            amount: amountSdaiIn,
             userData: bytes("")
         });
-        swaps[3] = IBalancerVault.BatchSwapStep({
+        swaps[1] = IBalancerVault.BatchSwapStep({
             poolId: PNK_POOL_4,
             assetInIndex: 3,
             assetOutIndex: 4,
             amount: 0,
             userData: bytes("")
         });
-        swaps[4] = IBalancerVault.BatchSwapStep({
+        swaps[2] = IBalancerVault.BatchSwapStep({
             poolId: PNK_POOL_5,
             assetInIndex: 4,
             assetOutIndex: 2,
