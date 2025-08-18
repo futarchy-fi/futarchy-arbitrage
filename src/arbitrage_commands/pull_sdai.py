@@ -60,21 +60,10 @@ def load_env(env_file: Optional[str]) -> None:
 
 
 def discover_v5_address() -> Tuple[Optional[str], str]:
-    files = sorted(glob.glob(DEPLOYMENTS_GLOB))
-    if files:
-        latest = files[-1]
-        try:
-            with open(latest, "r") as f:
-                data = json.load(f)
-            addr = data.get("address")
-            if addr:
-                return addr, f"deployments ({latest})"
-        except Exception:
-            pass
-    for k in ("FUTARCHY_ARB_EXECUTOR_V5", "EXECUTOR_V5_ADDRESS"):
-        v = os.getenv(k)
-        if v:
-            return v, f"env ({k})"
+    # Strict mode: require FUTARCHY_ARB_EXECUTOR_V5, no fallbacks.
+    v = os.getenv("FUTARCHY_ARB_EXECUTOR_V5")
+    if v:
+        return v, "env (FUTARCHY_ARB_EXECUTOR_V5)"
     return None, "unresolved"
 
 
@@ -139,7 +128,7 @@ def main():
     else:
         exec_addr, src = discover_v5_address()
         if not exec_addr:
-            raise SystemExit("Could not determine V5 address. Pass --address or set FUTARCHY_ARB_EXECUTOR_V5/EXECUTOR_V5_ADDRESS.")
+            raise SystemExit("FUTARCHY_ARB_EXECUTOR_V5 is required and not set (no fallbacks).")
 
     exec_addr = w3.to_checksum_address(exec_addr)
     print(f"Executor V5: {exec_addr} (source: {src})")
@@ -194,4 +183,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
