@@ -506,6 +506,101 @@ contract FutarchyArbExecutorV5 {
         require(signedProfit >= min_out_final, "min profit not met");
         emit ProfitVerified(initial_cur_balance, final_cur_balance, min_out_final);
     }
+
+    /**
+     * @notice BUY complete arbitrage variant that sells PNK internally (PNK→WETH→sDAI) instead of using Balancer calldata.
+     * @dev Signature mirrors buy_conditional_arbitrage_balancer for compatibility; only Step 6 differs.
+     */
+    function buy_conditional_arbitrage_pnk(
+        bytes calldata sell_company_ops, // ignored in this variant
+        address balancer_router,          // ignored for Step 6 (kept for signature compatibility)
+        address balancer_vault,           // ignored for Step 6 (kept for signature compatibility)
+        address comp,                     // MUST be TOKEN_PNK in this variant
+        address cur,
+        bool yes_has_higher_price,
+        address futarchy_router,
+        address proposal,
+        address yes_comp,
+        address no_comp,
+        address yes_cur,
+        address no_cur,
+        address yes_pool,
+        address no_pool,
+        address swapr_router,
+        uint256 amount_sdai_in,
+        int256  min_out_final
+    ) external {
+        // Unused args (kept for signature parity)
+        (sell_company_ops); (balancer_router); (balancer_vault);
+
+        // --- Step 0: snapshot base collateral for profit accounting ---
+        uint256 initial_cur_balance = IERC20(cur).balanceOf(address(this));
+
+        require(amount_sdai_in > 0, "amount=0");
+        require(comp == TOKEN_PNK, "comp!=PNK");
+        require(futarchy_router != address(0) && proposal != address(0), "router/proposal=0");
+        require(cur != address(0) && yes_comp != address(0) && no_comp != address(0), "addr=0");
+        require(yes_cur != address(0) && no_cur != address(0) && swapr_router != address(0), "addr=0");
+
+        // Step 1: split sDAI into conditional collateral (YES/NO)
+        _ensureMaxAllowance(IERC20(cur), futarchy_router);
+        IFutarchyRouter(futarchy_router).splitPosition(proposal, cur, amount_sdai_in);
+        emit ConditionalCollateralSplit(futarchy_router, proposal, cur, amount_sdai_in);
+
+        // Defensive check: ensure at least amount_sdai_in exists on both legs
+        require(IERC20(yes_cur).balanceOf(address(this)) >= amount_sdai_in, "insufficient YES_cur");
+        require(IERC20(no_cur).balanceOf(address(this))  >= amount_sdai_in, "insufficient NO_cur");
+
+        // Step 2 & 3: buy comps symmetrically
+        uint24 yesFee = _poolFeeOrDefault(yes_pool);
+        uint24 noFee  = _poolFeeOrDefault(no_pool);
+        if (yes_has_higher_price) {
+            uint256 yesCompOut = _swaprExactIn(swapr_router, yes_cur, yes_comp, amount_sdai_in, 0);
+            require(yesCompOut > 0, "YES exact-in produced zero");
+            _swaprExactOut(swapr_router, no_cur, no_comp, noFee, yesCompOut, amount_sdai_in);
+        } else {
+            uint256 noCompOut = _swaprExactIn(swapr_router, no_cur, no_comp, amount_sdai_in, 0);
+            require(noCompOut > 0, "NO exact-in produced zero");
+            _swaprExactOut(swapr_router, yes_cur, yes_comp, yesFee, noCompOut, amount_sdai_in);
+        }
+
+        // Step 4: Merge conditional composite tokens (YES_COMP/NO_COMP -> COMP)
+        uint256 yesCompBal = IERC20(yes_comp).balanceOf(address(this));
+        uint256 noCompBal  = IERC20(no_comp).balanceOf(address(this));
+        uint256 mergeAmt   = yesCompBal < noCompBal ? yesCompBal : noCompBal;
+        if (mergeAmt > 0) {
+            _ensureMaxAllowance(IERC20(yes_comp), futarchy_router);
+            _ensureMaxAllowance(IERC20(no_comp),  futarchy_router);
+            IFutarchyRouter(futarchy_router).mergePositions(proposal, comp, mergeAmt);
+            emit ConditionalCollateralMerged(futarchy_router, proposal, comp, mergeAmt);
+        }
+
+        // Step 6 (replaced): Sell PNK -> sDAI using internal helper
+        uint256 pnkBal = IERC20(TOKEN_PNK).balanceOf(address(this));
+        if (pnkBal > 0) {
+            this.sellPnkForSdai(pnkBal, 0, 0);
+        }
+
+        // Step 7: Sell any remaining single-sided conditional collateral to base collateral on Swapr
+        uint256 yesCurLeft = IERC20(yes_cur).balanceOf(address(this));
+        uint256 noCurLeft  = IERC20(no_cur).balanceOf(address(this));
+        if (yesCurLeft > 0) {
+            _swaprExactIn(swapr_router, yes_cur, cur, yesCurLeft, 0);
+        } else if (noCurLeft > 0) {
+            _swaprExactIn(swapr_router, no_cur,  cur, noCurLeft,  0);
+        }
+
+        // Step 8: Profit check
+        uint256 final_cur_balance = IERC20(cur).balanceOf(address(this));
+        require(
+            final_cur_balance <= uint256(type(int256).max) &&
+            initial_cur_balance <= uint256(type(int256).max),
+            "balance too large"
+        );
+        int256 signedProfit = int256(final_cur_balance) - int256(initial_cur_balance);
+        require(signedProfit >= min_out_final, "min profit not met");
+        emit ProfitVerified(initial_cur_balance, final_cur_balance, min_out_final);
+    }
     // --- Ownership ---
     address public owner;
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
