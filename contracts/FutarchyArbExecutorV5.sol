@@ -83,6 +83,19 @@ interface ISwapRouterV3ExactOutput {
 }
 
 /// ------------------------
+/// Uniswap V2-like Router (Swapr v2) – exact-in multi-hop
+/// ------------------------
+interface IUniswapV2Router02 {
+    function swapExactTokensForTokens(
+        uint256 amountIn,
+        uint256 amountOutMin,
+        address[] calldata path,
+        address to,
+        uint256 deadline
+    ) external returns (uint256[] memory amounts);
+}
+
+/// ------------------------
 /// Balancer BatchRouter (swapExactIn) – typed interface for BUY step 6
 /// ------------------------
 interface IBalancerBatchRouter {
@@ -106,6 +119,34 @@ interface IBalancerBatchRouter {
         external
         payable
         returns (uint256[] memory pathAmountsOut, address[] memory tokensOut, uint256[] memory amountsOut);
+}
+
+/// ------------------------
+/// Balancer Vault (batchSwap) – used in PNK flows
+/// ------------------------
+interface IBalancerVault {
+    enum SwapKind { GIVEN_IN, GIVEN_OUT }
+    struct BatchSwapStep {
+        bytes32 poolId;
+        uint256 assetInIndex;
+        uint256 assetOutIndex;
+        uint256 amount; // amount for GIVEN_IN on the first step of each branch; 0 for subsequent chained steps
+        bytes userData;
+    }
+    struct FundManagement {
+        address sender;
+        bool fromInternalBalance;
+        address recipient;
+        bool toInternalBalance;
+    }
+    function batchSwap(
+        SwapKind kind,
+        BatchSwapStep[] calldata swaps,
+        address[] calldata assets,
+        FundManagement calldata funds,
+        int256[] calldata limits,
+        uint256 deadline
+    ) external returns (int256[] memory assetDeltas);
 }
 
 /**
@@ -162,6 +203,106 @@ contract FutarchyArbExecutorV5 {
         poolIds[2] = PNK_POOL_3;
         poolIds[3] = PNK_POOL_4;
         poolIds[4] = PNK_POOL_5;
+    }
+
+    /// ------------------------
+    /// PNK Buy Flow: sDAI -> WETH (Balancer Vault) -> PNK (Swapr)
+    /// ------------------------
+    function buyPnkWithSdai(uint256 amountSdaiIn, uint256 minWethOut, uint256 minPnkOut) external {
+        require(amountSdaiIn > 0, "amount=0");
+
+        // Approve sDAI to Balancer Vault
+        _ensureMaxAllowance(IERC20(TOKEN_SDAI), BALANCER_VAULT);
+
+        // Build assets order
+        address[] memory assets = _pnkAssetsOrder();
+
+        // Build swaps: two branches converging to WETH (index 2)
+        IBalancerVault.BatchSwapStep[] memory swaps = new IBalancerVault.BatchSwapStep[](5);
+        uint256 half = amountSdaiIn / 2;
+        uint256 other = amountSdaiIn - half;
+        // Branch A: sDAI (0) -> ASSET_2 (1) -> WETH (2)
+        swaps[0] = IBalancerVault.BatchSwapStep({
+            poolId: PNK_POOL_1,
+            assetInIndex: 0,
+            assetOutIndex: 1,
+            amount: half,
+            userData: bytes("")
+        });
+        swaps[1] = IBalancerVault.BatchSwapStep({
+            poolId: PNK_POOL_2,
+            assetInIndex: 1,
+            assetOutIndex: 2,
+            amount: 0,
+            userData: bytes("")
+        });
+        // Branch B: sDAI (0) -> ASSET_4 (3) -> ASSET_5 (4) -> WETH (2)
+        swaps[2] = IBalancerVault.BatchSwapStep({
+            poolId: PNK_POOL_3,
+            assetInIndex: 0,
+            assetOutIndex: 3,
+            amount: other,
+            userData: bytes("")
+        });
+        swaps[3] = IBalancerVault.BatchSwapStep({
+            poolId: PNK_POOL_4,
+            assetInIndex: 3,
+            assetOutIndex: 4,
+            amount: 0,
+            userData: bytes("")
+        });
+        swaps[4] = IBalancerVault.BatchSwapStep({
+            poolId: PNK_POOL_5,
+            assetInIndex: 4,
+            assetOutIndex: 2,
+            amount: 0,
+            userData: bytes("")
+        });
+
+        // Limits: positive sDAI in; negative min WETH out if set
+        int256[] memory limits = new int256[](assets.length);
+        limits[PNK_IDX_SDAI] = int256(amountSdaiIn);
+        if (minWethOut > 0) {
+            limits[PNK_IDX_WETH] = -int256(minWethOut);
+        }
+
+        // Funds: this contract as sender/recipient; no internal balance
+        IBalancerVault.FundManagement memory funds = IBalancerVault.FundManagement({
+            sender: address(this),
+            fromInternalBalance: false,
+            recipient: address(this),
+            toInternalBalance: false
+        });
+
+        // Execute batchSwap
+        IBalancerVault(BALANCER_VAULT).batchSwap(
+            IBalancerVault.SwapKind.GIVEN_IN,
+            swaps,
+            assets,
+            funds,
+            limits,
+            BALANCER_VAULT_DEADLINE
+        );
+
+        // Validate WETH received
+        uint256 wethBal = IERC20(TOKEN_WETH).balanceOf(address(this));
+        require(wethBal > 0, "no WETH");
+        if (minWethOut > 0) {
+            require(wethBal >= minWethOut, "min WETH not met");
+        }
+
+        // Approve and swap WETH -> PNK on Swapr v2 (Uniswap v2 router)
+        _ensureMaxAllowance(IERC20(TOKEN_WETH), SWAPR_V2_ROUTER);
+        address[] memory path = new address[](2);
+        path[0] = TOKEN_WETH;
+        path[1] = TOKEN_PNK;
+        IUniswapV2Router02(SWAPR_V2_ROUTER).swapExactTokensForTokens(
+            wethBal,
+            minPnkOut,
+            path,
+            address(this),
+            SWAPR_V2_DEADLINE
+        );
     }
     // --- Ownership ---
     address public owner;
