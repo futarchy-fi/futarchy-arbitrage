@@ -92,6 +92,10 @@ class ConfigManager:
     def _map_env_to_config(self) -> Dict[str, Any]:
         """Map environment variables to JSON config structure."""
         return {
+            "bot": {
+                "type": os.getenv("BOT_TYPE", "balancer"),
+                # run_options can be filled/overridden later by set_runtime_params
+            },
             "network": {
                 "rpc_url": os.getenv("RPC_URL"),
                 "chain_id": int(os.getenv("CHAIN_ID", "100"))
@@ -497,9 +501,13 @@ class ArbitrageBot:
         Returns:
             (success, tx_hash): True if execution was successful and optional transaction hash
         """
-        # Build command for arbitrage_executor
+        # Select executor module by bot type (default: balancer)
+        bot_type = str(self.config.get("bot.type", "balancer") or "balancer").lower()
+        module = "src.executor.arbitrage_pnk_executor" if bot_type == "pnk" else "src.executor.arbitrage_executor"
+
+        # Build command for chosen executor
         cmd = [
-            sys.executable, "-m", "src.executor.arbitrage_executor",
+            sys.executable, "-m", module,
             "--flow", flow,
             "--amount", str(amount),
             "--cheaper", cheaper,
@@ -514,6 +522,7 @@ class ArbitrageBot:
             return True, None
             
         print(f"\nExecuting arbitrage: {flow.upper()} flow, {cheaper.upper()} cheaper")
+        print(f"Executor type: {bot_type}")
         print(f"Command: {' '.join(cmd)}")
         
         # Create environment with all necessary variables
