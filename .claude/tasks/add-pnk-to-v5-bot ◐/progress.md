@@ -5,12 +5,18 @@ Summary
 
 Status Snapshot
 - Subtask 1 (constants & route): ✅ Completed
-- Subtask 2 (buy sDAI→WETH→PNK): ◐ Partial — on-chain function implemented; integrate into complete flow next
-- Subtask 3 (sell PNK→WETH→sDAI): ◐ Partial — base function implemented; integrate into complete flow next
-- Subtask 4 (ABI & usage shape): Not started
+- Subtask 2 (buy sDAI→WETH→PNK): ✅ Completed — `buyPnkWithSdai` implemented; integrated into SELL flow (Step 2). BUY path now sells PNK back to sDAI in the same tx when `comp==PNK` (inline call to `sellPnkForSdai` inside `buy_conditional_arbitrage_balancer`).
+- Subtask 3 (sell PNK→WETH→sDAI): ✅ Completed — helper implemented and validated; wired into both SELL and BUY (when comp==PNK) paths.
+- Subtask 4 (ABI & usage shape): ✅ Completed — added `buy_conditional_arbitrage_pnk` (short signature); Python executor updated to use it (no Balancer fallback) and bot v2 supports `BOT_TYPE` (balancer|pnk|kleros).
+
+Evidence
+- BUY tx with merged PNK not sold: 0x88567e6ab9ec4ebefffd1483de3cee2d0cc7b9f8fb570ec9b02c1cb2e3240e90
 
 Next Focus
-- Implement the new complete arbitrage function composing the buy op, with minimal, isolated wiring in the executor/bot.
+- Monitor PNK route stability; pools/indices are hard-coded. Consider making poolIds configurable.
+- Add dry-run quoting and slippage guards if needed.
 
 Notes
-- Paths mirror the verified script route; batchSwap uses fixed poolIds and assets order; router is Swapr v2 for the PNK hop.
+- BUY helper now uses a single-branch Vault route (sDAI→ASSET_4→GNO→WETH) to avoid BAL#304 observed with dual-branch split.
+- Bot v2: `BOT_TYPE=pnk|kleros` uses PNK price model; `kleros` comparator imported from light_bot.
+- New CLI tools: `fund_executor` (send sDAI to V5) and `pull_sdai` (owner sweep). Strict env (no fallbacks) where requested.
