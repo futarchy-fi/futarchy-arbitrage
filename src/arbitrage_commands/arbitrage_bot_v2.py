@@ -37,6 +37,12 @@ from eth_account import Account
 
 from helpers.swapr_price import get_pool_price as swapr_price
 from helpers.balancer_price import get_pool_price as bal_price
+import asyncio
+try:
+    # Optional import for Kleros price mode
+    from arbitrage_commands.light_bot import get_pnk_price as kleros_get_pnk_price
+except Exception:
+    kleros_get_pnk_price = None
 from config.network import DEFAULT_RPC_URLS
 
 
@@ -348,14 +354,17 @@ class ArbitrageBot:
         
     def validate_configuration(self) -> None:
         """Ensure all required configuration values are set."""
+        bot_type = str(self.config.get("bot.type", "balancer") or "balancer").lower()
         required_paths = [
             "proposal.pools.swapr_yes_company_yes_currency.address",
             "proposal.pools.swapr_yes_currency_currency.address",
             "proposal.pools.swapr_no_company_no_currency.address",
-            "proposal.pools.balancer_company_currency.address",
             "wallet.private_key",
             "network.rpc_url"
         ]
+        # Only require Balancer pool in balancer/pnk modes
+        if bot_type != "kleros":
+            required_paths.append("proposal.pools.balancer_company_currency.address")
         
         missing = []
         for path in required_paths:
@@ -366,7 +375,7 @@ class ArbitrageBot:
             raise SystemExit(f"Missing required configuration: {', '.join(missing)}")
             
     def fetch_prices(self) -> dict:
-        """Fetch current prices from all pools."""
+        """Fetch current prices from Swapr and either Balancer or Kleros (PNK) depending on BOT_TYPE."""
         addr_yes = self.config.get("proposal.pools.swapr_yes_company_yes_currency.address")
         addr_pred_yes = self.config.get("proposal.pools.swapr_yes_currency_currency.address")
         addr_no = self.config.get("proposal.pools.swapr_no_company_no_currency.address")
@@ -377,14 +386,32 @@ class ArbitrageBot:
         pred_yes_price, _, _ = swapr_price(self.w3, addr_pred_yes)
         no_price, no_base, no_quote = swapr_price(self.w3, addr_no)
         
-        # Fetch Balancer price
-        bal_price_val, bal_base, bal_quote = bal_price(self.w3, addr_bal)
+        # Market price depends on bot type
+        bot_type = str(self.config.get("bot.type", "balancer") or "balancer").lower()
+        market_label = "Balancer"
+        market_price = None
+        bal_price_val = None
+        bal_base = bal_quote = None
+        pnk_price_val = None
+        if bot_type in ("kleros", "pnk"):
+            if kleros_get_pnk_price is None:
+                raise SystemExit("BOT_TYPE=kleros but Kleros price helper unavailable")
+            pnk_price_val = float(asyncio.run(kleros_get_pnk_price(self.w3)))
+            market_label = "PNK"
+            market_price = pnk_price_val
+        else:
+            bal_price_val, bal_base, bal_quote = bal_price(self.w3, addr_bal)
+            market_label = "Balancer"
+            market_price = float(bal_price_val)
         
         return {
             "yes_price": float(yes_price),
             "pred_yes_price": float(pred_yes_price),
             "no_price": float(no_price),
-            "bal_price": float(bal_price_val),
+            "bal_price": float(bal_price_val) if bal_price_val is not None else None,
+            "kleros_pnk_price": pnk_price_val,
+            "market_price": market_price,
+            "market_label": market_label,
             "yes_base": yes_base,
             "yes_quote": yes_quote,
             "no_base": no_base,
@@ -394,10 +421,8 @@ class ArbitrageBot:
         }
         
     def calculate_ideal_price(self, prices: dict) -> float:
-        """Calculate the ideal Balancer price based on prediction market."""
-        ideal = prices["pred_yes_price"] * prices["yes_price"] + \
-                (1.0 - prices["pred_yes_price"]) * prices["no_price"]
-        return ideal
+        """Calculate the ideal price based on prediction market (same formula for both modes)."""
+        return prices["pred_yes_price"] * prices["yes_price"] + (1.0 - prices["pred_yes_price"]) * prices["no_price"]
         
     def determine_opportunity(self, prices: dict, tolerance: float) -> Tuple[Optional[str], Optional[str]]:
         """
@@ -407,14 +432,15 @@ class ArbitrageBot:
             (flow, cheaper): 'sell'/'buy' and 'yes'/'no', or (None, None) if no opportunity
         """
         ideal_price = self.calculate_ideal_price(prices)
-        bal_price = prices["bal_price"]
-        deviation = abs(bal_price - ideal_price)
+        market_price = prices.get("market_price")
+        market_label = prices.get("market_label", "Market")
+        deviation = abs(market_price - ideal_price) if market_price is not None else float('inf')
         
         print(f"\nPrice Analysis:")
         print(f"  YES price:       {prices['yes_price']:.6f}")
         print(f"  NO price:        {prices['no_price']:.6f}")
         print(f"  Prediction YES:  {prices['pred_yes_price']:.6f}")
-        print(f"  Balancer price:  {bal_price:.6f}")
+        print(f"  {market_label} price:  {market_price:.6f}")
         print(f"  Ideal price:     {ideal_price:.6f}")
         print(f"  Deviation:       {deviation:.6f} ({deviation/ideal_price*100:.2f}%)")
         
@@ -423,12 +449,12 @@ class ArbitrageBot:
             return None, None
             
         # Determine flow direction
-        if bal_price > ideal_price:
+        if market_price > ideal_price:
             flow = "buy"  # Buy conditionals cheap, merge, sell composite high
-            print(f"  → BUY opportunity: Balancer overpriced by {bal_price - ideal_price:.6f}")
+            print(f"  → BUY opportunity: {market_label} overpriced by {market_price - ideal_price:.6f}")
         else:
             flow = "sell"  # Buy composite cheap, split, sell conditionals high
-            print(f"  → SELL opportunity: Balancer underpriced by {ideal_price - bal_price:.6f}")
+            print(f"  → SELL opportunity: {market_label} underpriced by {ideal_price - market_price:.6f}")
             
         # Determine which conditional is cheaper
         if prices["yes_price"] < prices["no_price"]:
@@ -503,7 +529,11 @@ class ArbitrageBot:
         """
         # Select executor module by bot type (default: balancer)
         bot_type = str(self.config.get("bot.type", "balancer") or "balancer").lower()
-        module = "src.executor.arbitrage_pnk_executor" if bot_type == "pnk" else "src.executor.arbitrage_executor"
+        module = (
+            "src.executor.arbitrage_pnk_executor"
+            if bot_type in ("pnk", "kleros")
+            else "src.executor.arbitrage_executor"
+        )
 
         # Build command for chosen executor
         cmd = [
