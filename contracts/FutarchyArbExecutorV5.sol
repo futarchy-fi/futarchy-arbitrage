@@ -304,6 +304,111 @@ contract FutarchyArbExecutorV5 {
             SWAPR_V2_DEADLINE
         );
     }
+
+    /// ------------------------
+    /// PNK Sell Flow: PNK -> WETH (Swapr) -> sDAI (Balancer Vault)
+    /// ------------------------
+    function sellPnkForSdai(uint256 amountPnkIn, uint256 minWethOut, uint256 minSdaiOut) external {
+        require(amountPnkIn > 0, "amount=0");
+
+        // 1) Swap PNK -> WETH on Swapr v2 (Uniswap v2 router)
+        _ensureMaxAllowance(IERC20(TOKEN_PNK), SWAPR_V2_ROUTER);
+        address[] memory pathOut = new address[](2);
+        pathOut[0] = TOKEN_PNK;
+        pathOut[1] = TOKEN_WETH;
+        IUniswapV2Router02(SWAPR_V2_ROUTER).swapExactTokensForTokens(
+            amountPnkIn,
+            minWethOut,
+            pathOut,
+            address(this),
+            SWAPR_V2_DEADLINE
+        );
+
+        // Read WETH received
+        uint256 wethBal = IERC20(TOKEN_WETH).balanceOf(address(this));
+        require(wethBal > 0, "no WETH");
+        if (minWethOut > 0) {
+            require(wethBal >= minWethOut, "min WETH not met");
+        }
+
+        // 2) Balancer Vault batchSwap: WETH -> sDAI using the reverse path of the buy flow
+        _ensureMaxAllowance(IERC20(TOKEN_WETH), BALANCER_VAULT);
+
+        address[] memory assets = _pnkAssetsOrder();
+
+        IBalancerVault.BatchSwapStep[] memory swaps = new IBalancerVault.BatchSwapStep[](5);
+        uint256 half = wethBal / 2;
+        uint256 other = wethBal - half;
+
+        // Reverse Branch A: WETH (2) -> ASSET_2 (1) -> sDAI (0)
+        swaps[0] = IBalancerVault.BatchSwapStep({
+            poolId: PNK_POOL_2,
+            assetInIndex: 2,
+            assetOutIndex: 1,
+            amount: half,
+            userData: bytes("")
+        });
+        swaps[1] = IBalancerVault.BatchSwapStep({
+            poolId: PNK_POOL_1,
+            assetInIndex: 1,
+            assetOutIndex: 0,
+            amount: 0,
+            userData: bytes("")
+        });
+
+        // Reverse Branch B: WETH (2) -> GNO (4) -> ASSET_4 (3) -> sDAI (0)
+        swaps[2] = IBalancerVault.BatchSwapStep({
+            poolId: PNK_POOL_5,
+            assetInIndex: 2,
+            assetOutIndex: 4,
+            amount: other,
+            userData: bytes("")
+        });
+        swaps[3] = IBalancerVault.BatchSwapStep({
+            poolId: PNK_POOL_4,
+            assetInIndex: 4,
+            assetOutIndex: 3,
+            amount: 0,
+            userData: bytes("")
+        });
+        swaps[4] = IBalancerVault.BatchSwapStep({
+            poolId: PNK_POOL_3,
+            assetInIndex: 3,
+            assetOutIndex: 0,
+            amount: 0,
+            userData: bytes("")
+        });
+
+        // Limits: positive WETH in; negative min sDAI out if set
+        int256[] memory limits = new int256[](assets.length);
+        limits[PNK_IDX_WETH] = int256(wethBal);
+        if (minSdaiOut > 0) {
+            limits[PNK_IDX_SDAI] = -int256(minSdaiOut);
+        }
+
+        IBalancerVault.FundManagement memory funds = IBalancerVault.FundManagement({
+            sender: address(this),
+            fromInternalBalance: false,
+            recipient: address(this),
+            toInternalBalance: false
+        });
+
+        IBalancerVault(BALANCER_VAULT).batchSwap(
+            IBalancerVault.SwapKind.GIVEN_IN,
+            swaps,
+            assets,
+            funds,
+            limits,
+            BALANCER_VAULT_DEADLINE
+        );
+
+        // Validate sDAI received
+        uint256 sdaiBal = IERC20(TOKEN_SDAI).balanceOf(address(this));
+        require(sdaiBal > 0, "no sDAI");
+        if (minSdaiOut > 0) {
+            require(sdaiBal >= minSdaiOut, "min sDAI not met");
+        }
+    }
     // --- Ownership ---
     address public owner;
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
