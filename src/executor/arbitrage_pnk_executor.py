@@ -402,11 +402,6 @@ def _exec_buy12(
 
     amount_in_wei = w3.to_wei(Decimal(str(amount_in_eth)), "ether")
     # Addresses (env)
-    balancer_router = require_env("BALANCER_ROUTER_ADDRESS")  # required if steps 4–6 are engaged
-    balancer_vault  = os.getenv("BALANCER_VAULT_ADDRESS") or os.getenv("BALANCER_VAULT_V3_ADDRESS") or ZERO_ADDR
-    # Use env-provided company token so BUY flow targets the correct market (e.g., PNK).
-    # Note: if comp != the canonical GNO company token, the Balancer sell-ops placeholder
-    # will not match and should be skipped (we handle this below).
     comp            = os.getenv("COMPANY_TOKEN_ADDRESS", COMPANY_TOKEN)
     cur             = os.getenv("SDAI_TOKEN_ADDRESS", SDAI)
     swapr_router    = _require_addr(w3, "SWAPR_ROUTER_ADDRESS")
@@ -422,16 +417,7 @@ def _exec_buy12(
     pred_yes_pool   = _addr_or_zero(w3, "SWAPR_SDAI_YES_POOL", "PRED_YES_POOL")
     pred_no_pool    = _addr_or_zero(w3, "SWAPR_SDAI_NO_POOL",  "PRED_NO_POOL")
 
-    # Prepare Balancer sell ops (COMP -> sDAI) for steps 4–6 only when using the
-    # canonical GNO route. For other company tokens (e.g., PNK), skip by passing 0x
-    # so the contract omits the Balancer sell step.
-    if Web3.to_checksum_address(comp) == Web3.to_checksum_address(COMPANY_TOKEN):
-        try:
-            sell_ops_hex = _encode_sell_company_ops_placeholder(w3, balancer_router)
-        except Exception as e:
-            raise SystemExit(f"Failed to encode Balancer sell ops placeholder (composite->sDAI): {e}")
-    else:
-        sell_ops_hex = "0x"
+    # No Balancer fallback: require the on-chain PNK entrypoint to be present.
 
     # Ensure the executor is funded with sDAI to split
     sdai_addr = os.getenv("SDAI_TOKEN_ADDRESS", SDAI)
@@ -471,36 +457,31 @@ def _exec_buy12(
         tx_params["gas"] = getattr(_exec_buy12, "force_gas_limit", 1_500_000)
 
     # Prefer the PNK-specific on-chain BUY entrypoint if available; fallback to Balancer variant.
-    values = {
-        "sell_company_ops": sell_ops_hex,
-        "balancer_router":  balancer_router,
-        "balancer_vault":   balancer_vault,
-        "comp":             comp,
-        "cur":              cur,
+    # Build argument maps tailored to each ABI to avoid passing unused params.
+    values_pnk = {
+        "comp":              comp,
+        "cur":               cur,
         # Support either ABI field name: provide both lower/higher
-        "yes_has_lower_price": bool(yes_has_lower_price),
+        "yes_has_lower_price":  bool(yes_has_lower_price),
         "yes_has_higher_price": (not bool(yes_has_lower_price)),
-        "futarchy_router":  fr_opt or ZERO_ADDR,
-        "proposal":         pr_opt or ZERO_ADDR,
-        "yes_comp":         yes_comp,
-        "no_comp":          no_comp,
-        "yes_cur":          yes_cur,
-        "no_cur":           no_cur,
-        "yes_pool":         yes_pool,
-        "no_pool":          no_pool,
-        "swapr_router":     swapr_router,
-        "amount_sdai_in":   int(amount_in_wei),
-        "min_out_final":    int(getattr(_exec_buy12, "min_out_final_wei", 0)),
+        "futarchy_router":   fr_opt or ZERO_ADDR,
+        "proposal":          pr_opt or ZERO_ADDR,
+        "yes_comp":          yes_comp,
+        "no_comp":           no_comp,
+        "yes_cur":           yes_cur,
+        "no_cur":            no_cur,
+        "yes_pool":          yes_pool,
+        "no_pool":           no_pool,
+        "swapr_router":      swapr_router,
+        "amount_sdai_in":    int(amount_in_wei),
+        "min_out_final":     int(getattr(_exec_buy12, "min_out_final_wei", 0)),
     }
     try:
-        # Try new PNK entrypoint first
-        fn_abi = _choose_function_abi(abi, "buy_conditional_arbitrage_pnk", set(values.keys()))
-        fn = getattr(v5.functions, "buy_conditional_arbitrage_pnk")
+        fn_abi = _choose_function_abi(abi, "buy_conditional_arbitrage_pnk", set(values_pnk.keys()))
     except SystemExit:
-        # Fallback to Balancer variant
-        fn_abi = _choose_function_abi(abi, "buy_conditional_arbitrage_balancer", set(values.keys()))
-        fn = getattr(v5.functions, "buy_conditional_arbitrage_balancer")
-    args = _materialize_args(w3, fn_abi, values)
+        raise SystemExit("ABI: buy_conditional_arbitrage_pnk not found. Deploy the updated V5 or use the SELL flow.")
+    fn = getattr(v5.functions, "buy_conditional_arbitrage_pnk")
+    args = _materialize_args(w3, fn_abi, values_pnk)
     tx = fn(*args).build_transaction(tx_params)
 
     if "gas" not in tx:
@@ -520,6 +501,47 @@ def _exec_buy12(
     print(f"Blockscout: https://gnosis.blockscout.com/tx/{txh0x}")
     receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
     print(f"Success: {receipt.status == 1}; Gas used: {receipt.gasUsed}")
+
+    # Follow-up: if company token is PNK and BUY entrypoint did not sell PNK
+    # (older deployment without buy_conditional_arbitrage_pnk), sell any leftover PNK now.
+    pnk_addr_env = os.getenv("COMPANY_TOKEN_ADDRESS")
+    PNK_CHAIN = Web3.to_checksum_address("0x37b60f4E9A31A64cCc0024dce7D0fD07eAA0F7B3")
+    if pnk_addr_env:
+        try:
+            comp_addr_cs = w3.to_checksum_address(comp)
+            pnk_cs = w3.to_checksum_address(pnk_addr_env)
+        except Exception:
+            comp_addr_cs = comp
+            pnk_cs = pnk_addr_env
+        if comp_addr_cs.lower() == pnk_cs.lower() or comp_addr_cs.lower() == PNK_CHAIN.lower():
+            # Query executor's PNK balance
+            erc20 = w3.eth.contract(address=pnk_cs, abi=_ERC20_MIN_ABI)
+            pnk_bal = int(erc20.functions.balanceOf(w3.to_checksum_address(v5_address)).call())
+            if pnk_bal > 0:
+                print(f"Found leftover PNK on executor: {w3.from_wei(pnk_bal, 'ether')} — selling to sDAI")
+                tx2_params = {
+                    "from": account.address,
+                    "nonce": w3.eth.get_transaction_count(account.address),
+                    "chainId": w3.eth.chain_id,
+                }
+                tx2_params.update(_eip1559_fees(w3))
+                # default gas if force-send set globally on buy
+                if getattr(_exec_buy12, "force_send_flag", False):
+                    tx2_params["gas"] = getattr(_exec_buy12, "force_gas_limit", 1_500_000)
+                tx2 = v5.functions.sellPnkForSdai(int(pnk_bal), 0, 0).build_transaction(tx2_params)
+                if "gas" not in tx2:
+                    try:
+                        tx2["gas"] = int(w3.eth.estimate_gas(tx2) * 1.2)
+                    except Exception:
+                        tx2["gas"] = 1_500_000
+                s2 = account.sign_transaction(tx2)
+                raw2 = getattr(s2, "rawTransaction", None) or getattr(s2, "raw_transaction", None)
+                h2 = w3.eth.send_raw_transaction(raw2)
+                h2x = h2.hex()
+                print(f"PNK→sDAI sell tx: {h2x}")
+                print(f"GnosisScan:  https://gnosisscan.io/tx/{h2x}")
+                w3.eth.wait_for_transaction_receipt(h2)
+
     return txh0x
 
 

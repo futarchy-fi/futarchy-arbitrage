@@ -512,9 +512,7 @@ contract FutarchyArbExecutorV5 {
      * @dev Signature mirrors buy_conditional_arbitrage_balancer for compatibility; only Step 6 differs.
      */
     function buy_conditional_arbitrage_pnk(
-        bytes calldata sell_company_ops, // ignored in this variant
-        address balancer_router,          // ignored for Step 6 (kept for signature compatibility)
-        address balancer_vault,           // ignored for Step 6 (kept for signature compatibility)
+
         address comp,                     // MUST be TOKEN_PNK in this variant
         address cur,
         bool yes_has_higher_price,
@@ -530,8 +528,6 @@ contract FutarchyArbExecutorV5 {
         uint256 amount_sdai_in,
         int256  min_out_final
     ) external {
-        // Unused args (kept for signature parity)
-        (sell_company_ops); (balancer_router); (balancer_vault);
 
         // --- Step 0: snapshot base collateral for profit accounting ---
         uint256 initial_cur_balance = IERC20(cur).balanceOf(address(this));
@@ -811,37 +807,42 @@ contract FutarchyArbExecutorV5 {
         }
 
         // ------------------------------------------------------------------ //
-        // Step 5: Approvals for Balancer sell (COMP -> sDAI)
-        //   - Use Permit2(owner=this, spender=router) for COMP
-        //   - Optionally max-approve the Vault (if nonzero)
+        // Step 5 & 6: Sell COMP -> sDAI
+        //   - If COMP is PNK, use the internal PNK sell helper (Swapr v2 + Balancer Vault)
+        //   - Otherwise, use provided Balancer BatchRouter calldata to sell COMP
         // ------------------------------------------------------------------ //
-        if (sell_company_ops.length > 0 && mergeAmt > 0) {
-            require(balancer_router != address(0), "balancer router=0");
-            _ensurePermit2Approvals(IERC20(comp), balancer_router);
-            if (balancer_vault != address(0)) {
-                _ensureMaxAllowance(IERC20(comp), balancer_vault);
-            }
+        if (mergeAmt > 0) {
+            if (comp == TOKEN_PNK) {
+                // Internal PNK liquidation path in the same tx
+                uint256 pnkBal = IERC20(TOKEN_PNK).balanceOf(address(this));
+                if (pnkBal > 0) {
+                    this.sellPnkForSdai(pnkBal, 0, 0);
+                }
+            } else if (sell_company_ops.length > 0) {
+                require(balancer_router != address(0), "balancer router=0");
+                _ensurePermit2Approvals(IERC20(comp), balancer_router);
+                if (balancer_vault != address(0)) {
+                    _ensureMaxAllowance(IERC20(comp), balancer_vault);
+                }
 
-            // ------------------------------------------------------------------ //
-            // Step 6: Decode provided swapExactIn payload, override exactAmountIn, call router
-            // ------------------------------------------------------------------ //
-            (
-                IBalancerBatchRouter.SwapPathExactAmountIn[] memory paths,
-                uint256 deadline,
-                bool wethIsEth,
-                bytes memory userData
-            ) = abi.decode(
-                sell_company_ops[4:],
-                (IBalancerBatchRouter.SwapPathExactAmountIn[], uint256, bool, bytes)
-            );
-            require(paths.length > 0, "paths=0");
-            if (paths[0].tokenIn != comp) {
-                paths[0].tokenIn = comp;
-            }
-            paths[0].exactAmountIn = mergeAmt;
+                (
+                    IBalancerBatchRouter.SwapPathExactAmountIn[] memory paths,
+                    uint256 deadline,
+                    bool wethIsEth,
+                    bytes memory userData
+                ) = abi.decode(
+                    sell_company_ops[4:],
+                    (IBalancerBatchRouter.SwapPathExactAmountIn[], uint256, bool, bytes)
+                );
+                require(paths.length > 0, "paths=0");
+                if (paths[0].tokenIn != comp) {
+                    paths[0].tokenIn = comp;
+                }
+                paths[0].exactAmountIn = mergeAmt;
 
-            IBalancerBatchRouter(balancer_router).swapExactIn(paths, deadline, wethIsEth, userData);
-            emit BalancerSellExecuted(balancer_router, sell_company_ops);
+                IBalancerBatchRouter(balancer_router).swapExactIn(paths, deadline, wethIsEth, userData);
+                emit BalancerSellExecuted(balancer_router, sell_company_ops);
+            }
         }
 
         // --- Step 7: Sell any remaining single-sided conditional collateral to base collateral on Swapr ---
