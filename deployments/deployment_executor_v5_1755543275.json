@@ -1,0 +1,815 @@
+{
+  "address": "0x0A20e7398B884f69b886a626fa096976bc93Ee3d",
+  "tx_hash": "0x7bc198090c25031bf378aaf4ffdfc6e7571f70c812f902a63f72319f861e02b2",
+  "gas_used": 4828991,
+  "block_number": 41670913,
+  "timestamp": "2025-08-18T15:54:35.645845",
+  "abi": [
+    {
+      "inputs": [],
+      "stateMutability": "nonpayable",
+      "type": "constructor"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "router",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "bytes",
+          "name": "buyOps",
+          "type": "bytes"
+        }
+      ],
+      "name": "BalancerBuyExecuted",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "router",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "bytes",
+          "name": "sellOps",
+          "type": "bytes"
+        }
+      ],
+      "name": "BalancerSellExecuted",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "comp",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "CompositeAcquired",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "comp",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "bool",
+          "name": "ok",
+          "type": "bool"
+        }
+      ],
+      "name": "CompositeSplitAttempted",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "router",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "proposal",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "collateral",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "ConditionalCollateralMerged",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "router",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "proposal",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "collateral",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "ConditionalCollateralSplit",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "collateral",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "balance",
+          "type": "uint256"
+        }
+      ],
+      "name": "InitialCollateralSnapshot",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "token",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "spender",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "allowance",
+          "type": "uint256"
+        }
+      ],
+      "name": "MaxAllowanceEnsured",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "previousOwner",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "newOwner",
+          "type": "address"
+        }
+      ],
+      "name": "OwnershipTransferred",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "token",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "spender",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint160",
+          "name": "amount",
+          "type": "uint160"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint48",
+          "name": "expiration",
+          "type": "uint48"
+        }
+      ],
+      "name": "Permit2AllowanceEnsured",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "initialBalance",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "finalBalance",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "int256",
+          "name": "minProfit",
+          "type": "int256"
+        }
+      ],
+      "name": "ProfitVerified",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "router",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "tokenIn",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "tokenOut",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amountIn",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amountOut",
+          "type": "uint256"
+        }
+      ],
+      "name": "SwaprExactInExecuted",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "router",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "tokenIn",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "tokenOut",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amountOut",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amountIn",
+          "type": "uint256"
+        }
+      ],
+      "name": "SwaprExactOutExecuted",
+      "type": "event"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "amountSdaiIn",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "minWethOut",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "minPnkOut",
+          "type": "uint256"
+        }
+      ],
+      "name": "buyPnkWithSdai",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes",
+          "name": "sell_company_ops",
+          "type": "bytes"
+        },
+        {
+          "internalType": "address",
+          "name": "balancer_router",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "balancer_vault",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "comp",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "cur",
+          "type": "address"
+        },
+        {
+          "internalType": "bool",
+          "name": "yes_has_higher_price",
+          "type": "bool"
+        },
+        {
+          "internalType": "address",
+          "name": "futarchy_router",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "proposal",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "yes_comp",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "no_comp",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "yes_cur",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "no_cur",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "yes_pool",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "no_pool",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "swapr_router",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "amount_sdai_in",
+          "type": "uint256"
+        },
+        {
+          "internalType": "int256",
+          "name": "min_out_final",
+          "type": "int256"
+        }
+      ],
+      "name": "buy_conditional_arbitrage_balancer",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "comp",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "cur",
+          "type": "address"
+        },
+        {
+          "internalType": "bool",
+          "name": "yes_has_higher_price",
+          "type": "bool"
+        },
+        {
+          "internalType": "address",
+          "name": "futarchy_router",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "proposal",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "yes_comp",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "no_comp",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "yes_cur",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "no_cur",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "yes_pool",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "no_pool",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "swapr_router",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "amount_sdai_in",
+          "type": "uint256"
+        },
+        {
+          "internalType": "int256",
+          "name": "min_out_final",
+          "type": "int256"
+        }
+      ],
+      "name": "buy_conditional_arbitrage_pnk",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "owner",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "amountPnkIn",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "minWethOut",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "minSdaiOut",
+          "type": "uint256"
+        }
+      ],
+      "name": "sellPnkForSdai",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes",
+          "name": "buy_company_ops",
+          "type": "bytes"
+        },
+        {
+          "internalType": "address",
+          "name": "balancer_router",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "balancer_vault",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "comp",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "cur",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "futarchy_router",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "proposal",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "yes_comp",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "no_comp",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "yes_cur",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "no_cur",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "swapr_router",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "amount_sdai_in",
+          "type": "uint256"
+        },
+        {
+          "internalType": "int256",
+          "name": "min_out_final",
+          "type": "int256"
+        }
+      ],
+      "name": "sell_conditional_arbitrage_balancer",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes",
+          "name": "buy_company_ops",
+          "type": "bytes"
+        },
+        {
+          "internalType": "address",
+          "name": "balancer_router",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "balancer_vault",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "comp",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "cur",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "futarchy_router",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "proposal",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "yes_comp",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "no_comp",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "yes_cur",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "no_cur",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "swapr_router",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "amount_sdai_in",
+          "type": "uint256"
+        },
+        {
+          "internalType": "int256",
+          "name": "min_out_final",
+          "type": "int256"
+        }
+      ],
+      "name": "sell_conditional_arbitrage_pnk",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "contract IERC20",
+          "name": "token",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "to",
+          "type": "address"
+        }
+      ],
+      "name": "sweepToken",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "newOwner",
+          "type": "address"
+        }
+      ],
+      "name": "transferOwnership",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address payable",
+          "name": "to",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "withdrawETH",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "contract IERC20",
+          "name": "token",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "to",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "withdrawToken",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "stateMutability": "payable",
+      "type": "receive"
+    }
+  ],
+  "network": "gnosis",
+  "contract": "FutarchyArbExecutorV5"
+}
