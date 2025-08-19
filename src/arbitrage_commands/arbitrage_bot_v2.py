@@ -544,6 +544,10 @@ class ArbitrageBot:
             "--min-profit", str(min_profit)
         ]
         
+        # Add env file if specified
+        if self.config.env_file:
+            cmd.extend(["--env", self.config.env_file])
+        
         if prefund:
             cmd.append("--prefund")
             
