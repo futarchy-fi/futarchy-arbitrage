@@ -115,6 +115,7 @@ def get_pool_price(
         else:
             # Default to token0 as base
             base_token_index = 0
+        print(f"Auto-detected base token index: {base_token_index} (pool: {pool_address}, token0: {name0}, token1: {name1})", file=sys.stderr)
 
     dec0 = _decimals(w3, token0)
     dec1 = _decimals(w3, token1)
