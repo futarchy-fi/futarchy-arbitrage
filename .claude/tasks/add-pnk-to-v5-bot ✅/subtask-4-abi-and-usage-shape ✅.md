@@ -1,7 +1,7 @@
 Title: ABI shape and usage constraints for new PNK functions
 
 Status
-- Not started: signatures and usage constraints to be finalized after integrating the complete arbitrage flow entrypoint.
+- ✅ Completed: signatures finalized and integrated with Python executor and bot v2.
 
 Objective
 - Define minimal, executor-friendly function signatures that match the script semantics and integrate with existing off-chain executor behavior without extra wiring.

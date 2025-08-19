@@ -1,9 +1,9 @@
-# PNK Integration into FutarchyArbExecutorV5 — Progress
+# PNK Integration into FutarchyArbExecutorV5 — ✅ Completed
 
 Summary
 - Goal: add isolated PNK buy/sell flows (sDAI↔WETH↔PNK) and integrate them into a new, complete arbitrage flow without altering existing behavior.
 
-Status Snapshot
+Status: ✅ All Subtasks Completed
 - Subtask 1 (constants & route): ✅ Completed
 - Subtask 2 (buy sDAI→WETH→PNK): ✅ Completed — `buyPnkWithSdai` implemented; integrated into SELL flow (Step 2). BUY path now sells PNK back to sDAI in the same tx when `comp==PNK` (inline call to `sellPnkForSdai` inside `buy_conditional_arbitrage_balancer`).
 - Subtask 3 (sell PNK→WETH→sDAI): ✅ Completed — helper implemented and validated; wired into both SELL and BUY (when comp==PNK) paths.

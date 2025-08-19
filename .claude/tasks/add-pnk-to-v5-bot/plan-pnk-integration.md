@@ -124,9 +124,9 @@ Note: For SELL via Balancer, we can either:
 1) Add PNK constants and pool route to a v5 config module (or executor-level constants).
    - Status: Completed (implemented in FutarchyArbExecutorV5.sol with helpers)
 2) Implement `exec_buy_pnk_with_sdai_v5` using the exact script logic and call shapes above.
-   - Status: Partial — on-chain buy function (`buyPnkWithSdai`) is implemented and verified. Next: integrate into a new complete arbitrage flow function (separate from existing), as per task.
+   - Status: Partial — on-chain buy helper (`buyPnkWithSdai`) implemented and verified; BUY arbitrage entrypoint for PNK (`buy_conditional_arbitrage_pnk`) implemented but pending deployment to complete Step 6 (PNK→sDAI sell) on the BUY path.
 3) Implement `exec_sell_pnk_for_sdai_v5` with mirrored logic; verify indices/limits for WETH→sDAI.
-   - Status: Partial — base function (`sellPnkForSdai`) implemented and exercised with small-size sell; final integration into the complete flow remains.
+   - Status: Completed — minimal sell helper implemented and validated; separate complete sell entrypoint added.
 4) Wire new CLI subcommands and flags (amount/mins/force-send/slippage-bps).
 5) Add dry-run quoting that computes mins if `slippage_bps` is provided.
 6) Reuse v5 gas helpers and signed min-profit conversion; keep recipient fixed to sender.

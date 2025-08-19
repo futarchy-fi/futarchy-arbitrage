@@ -21,9 +21,10 @@ Implemented
   - Inline in `buy_conditional_arbitrage_balancer` when `comp==PNK` (calls `sellPnkForSdai`).
   - Separate entrypoint: `buy_conditional_arbitrage_pnk(...)` (short signature) supported by Python executor.
 
-Next steps to complete
-- Monitor route correctness and consider making poolIds configurable via env.
-- Add optional slippage controls from quotes.
+Monitoring Notes
+- Route stability should be monitored; poolIds are currently hard-coded
+- Consider making poolIds configurable via env if needed
+- Optional slippage controls from quotes could be added if required
 
 Notes
 - Signed min-profit is supported end-to-end; negative values accepted.
