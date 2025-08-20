@@ -13,7 +13,32 @@ import os
 import re
 from pathlib import Path
 from typing import Dict, Any, List, Optional
-from dotenv import dotenv_values
+try:
+    from dotenv import dotenv_values  # type: ignore
+except Exception:
+    # Fallback lightweight parser when python-dotenv is unavailable
+    def dotenv_values(path):  # type: ignore
+        values = {}
+        try:
+            with open(path, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if line.lower().startswith("export "):
+                        line = line[7:].lstrip()
+                    if "=" not in line:
+                        continue
+                    key, val = line.split("=", 1)
+                    key = key.strip()
+                    val = val.strip()
+                    # Strip surrounding quotes
+                    if (val.startswith("\"") and val.endswith("\"")) or (val.startswith("'") and val.endswith("'")):
+                        val = val[1:-1]
+                    values[key] = val
+        except FileNotFoundError:
+            return {}
+        return values
 
 
 def find_env_files() -> List[Path]:
@@ -73,16 +98,15 @@ def env_to_json_config(env_vars: Dict[str, str],
     
     config = {
         "bot": {
-            "type": "gnosis",
+            "type": env_vars.get("BOT_TYPE", "gnosis"),
             "run_options": bot_params
         },
         "network": {
             "rpc_url": env_vars.get("RPC_URL", ""),
             "chain_id": int(env_vars.get("CHAIN_ID", "100"))
         },
-        "wallet": {
-            "private_key": env_vars.get("PRIVATE_KEY", "")
-        },
+        # Intentionally exclude PRIVATE_KEY from migration for safety
+        "wallet": {},
         "contracts": {
             "executor_v5": env_vars.get("FUTARCHY_ARB_EXECUTOR_V5") or 
                           env_vars.get("EXECUTOR_V5_ADDRESS") or 
@@ -221,9 +245,6 @@ def validate_config(config: Dict[str, Any]) -> List[str]:
     # Check critical fields
     if not config.get("network", {}).get("rpc_url"):
         warnings.append("⚠️  Missing RPC_URL")
-    
-    if not config.get("wallet", {}).get("private_key"):
-        warnings.append("⚠️  Missing PRIVATE_KEY")
     
     if not config.get("proposal", {}).get("address"):
         warnings.append("⚠️  Missing FUTARCHY_PROPOSAL_ADDRESS")
