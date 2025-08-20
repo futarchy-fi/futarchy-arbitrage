@@ -932,9 +932,8 @@ contract FutarchyArbExecutorV5 {
 
         // --- Step 8: On-chain profit check in base collateral terms (signed) ---
         uint256 final_cur_balance = IERC20(cur).balanceOf(address(this));
-        // require(final_cur_balance <= uint256(type(int256).max) && initial_cur_balance <= uint256(type(int256).max), "balance too large");
-        // int256 signedProfit = int256(final_cur_balance) - int256(initial_cur_balance);
-        require(int256(amount_sdai_in) >= min_out_final, "min profit not met");
+        int256 signedProfit = int256(final_cur_balance) - int256(initial_cur_balance);
+        require(signedProfit >= min_out_final, "min profit not met");
         emit ProfitVerified(initial_cur_balance, final_cur_balance, min_out_final - int256(amount_sdai_in));
     }
 
