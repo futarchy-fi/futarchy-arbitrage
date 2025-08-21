@@ -208,7 +208,8 @@ contract FutarchyArbExecutorV5 {
     /// ------------------------
     /// PNK Buy Flow: sDAI -> WETH (Balancer Vault, single-branch) -> PNK (Swapr)
     /// ------------------------
-    function buyPnkWithSdai(uint256 amountSdaiIn, uint256 minWethOut, uint256 minPnkOut) external {
+    // Internal implementation used by on-chain flows
+    function _buyPnkWithSdai(uint256 amountSdaiIn, uint256 minWethOut, uint256 minPnkOut) internal {
         require(amountSdaiIn > 0, "amount=0");
 
         // Approve sDAI to Balancer Vault
@@ -286,11 +287,16 @@ contract FutarchyArbExecutorV5 {
             SWAPR_V2_DEADLINE
         );
     }
+    // External entrypoint gated to owner only
+    function buyPnkWithSdai(uint256 amountSdaiIn, uint256 minWethOut, uint256 minPnkOut) external onlyOwner {
+        _buyPnkWithSdai(amountSdaiIn, minWethOut, minPnkOut);
+    }
 
     /// ------------------------
     /// PNK Sell Flow: PNK -> WETH (Swapr) -> sDAI (Balancer Vault)
     /// ------------------------
-    function sellPnkForSdai(uint256 amountPnkIn, uint256 minWethOut, uint256 minSdaiOut) external {
+    // Internal implementation used by on-chain flows
+    function _sellPnkForSdai(uint256 amountPnkIn, uint256 minWethOut, uint256 minSdaiOut) internal {
         require(amountPnkIn > 0, "amount=0");
 
         // 1) Swap PNK -> WETH on Swapr v2 (Uniswap v2 router)
@@ -391,6 +397,10 @@ contract FutarchyArbExecutorV5 {
             require(sdaiBal >= minSdaiOut, "min sDAI not met");
         }
     }
+    // External entrypoint gated to owner only
+    function sellPnkForSdai(uint256 amountPnkIn, uint256 minWethOut, uint256 minSdaiOut) external onlyOwner {
+        _sellPnkForSdai(amountPnkIn, minWethOut, minSdaiOut);
+    }
 
     /**
      * @notice SELL complete arbitrage variant that buys PNK internally (sDAI→WETH→PNK) instead of using Balancer calldata.
@@ -428,7 +438,7 @@ contract FutarchyArbExecutorV5 {
         // --- Step 2 (replaced): buy PNK using internal sDAI→WETH→PNK path ---
         // Uses fixed Balancer route + Swapr v2 router configured in this contract.
         // minWethOut/minPnkOut set to 0 for simplicity; external callers can constrain via min_out_final if needed.
-        this.buyPnkWithSdai(amount_sdai_in, 0, 0);
+        _buyPnkWithSdai(amount_sdai_in, 0, 0);
 
         // --- Step 3: verify PNK (comp) acquired ---
         uint256 compBalance = IERC20(comp).balanceOf(address(this));
@@ -556,7 +566,7 @@ contract FutarchyArbExecutorV5 {
         // Step 6 (replaced): Sell PNK -> sDAI using internal helper
         uint256 pnkBal = IERC20(TOKEN_PNK).balanceOf(address(this));
         if (pnkBal > 0) {
-            this.sellPnkForSdai(pnkBal, 0, 0);
+            _sellPnkForSdai(pnkBal, 0, 0);
         }
 
         // Step 7: Sell any remaining single-sided conditional collateral to base collateral on Swapr
@@ -798,7 +808,7 @@ contract FutarchyArbExecutorV5 {
                 // Internal PNK liquidation path in the same tx
                 uint256 pnkBal = IERC20(TOKEN_PNK).balanceOf(address(this));
                 if (pnkBal > 0) {
-                    this.sellPnkForSdai(pnkBal, 0, 0);
+                    _sellPnkForSdai(pnkBal, 0, 0);
                 }
             } else if (sell_company_ops.length > 0) {
                 require(balancer_router != address(0), "balancer router=0");
