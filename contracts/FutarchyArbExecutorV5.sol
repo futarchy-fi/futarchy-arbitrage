@@ -421,7 +421,7 @@ contract FutarchyArbExecutorV5 {
         address swapr_router,
         uint256 amount_sdai_in,
         int256  min_out_final
-    ) external {
+    ) external onlyOwner {
         // Silence unused params
         (buy_company_ops); (balancer_router); (balancer_vault);
 
@@ -519,7 +519,7 @@ contract FutarchyArbExecutorV5 {
         address swapr_router,
         uint256 amount_sdai_in,
         int256  min_out_final
-    ) external {
+    ) external onlyOwner {
 
         // --- Step 0: snapshot base collateral for profit accounting ---
         uint256 initial_cur_balance = IERC20(cur).balanceOf(address(this));
@@ -751,7 +751,7 @@ contract FutarchyArbExecutorV5 {
         address swapr_router,
         uint256 amount_sdai_in,
         int256  min_out_final
-    ) external {
+    ) external onlyOwner {
         // KEEPING signature compatible; new arg appended.
         // --- Step 0: snapshot base collateral for profit accounting ---
         uint256 initial_cur_balance = IERC20(cur).balanceOf(address(this));
@@ -874,7 +874,7 @@ contract FutarchyArbExecutorV5 {
         address swapr_router,
         uint256 amount_sdai_in,
         int256 min_out_final
-    ) external {
+    ) external onlyOwner {
         // Silence unused param (forward-compat)
         (amount_sdai_in);
 
