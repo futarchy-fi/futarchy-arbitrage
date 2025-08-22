@@ -71,7 +71,14 @@ def load_env(env_file: Optional[str]) -> None:
 
 
 def discover_v5_address() -> Tuple[Optional[str], str]:
-    # Prefer latest deployments file so changes are picked up automatically
+    # Prefer env vars first
+    env_keys = ["FUTARCHY_ARB_EXECUTOR_V5", "EXECUTOR_V5_ADDRESS"]
+    for k in env_keys:
+        v = os.getenv(k)
+        if v:
+            return v, f"env ({k})"
+
+    # Fallback to latest deployments file so changes are picked up automatically
     files = sorted(glob.glob(DEPLOYMENTS_GLOB))
     if files:
         latest = files[-1]
@@ -83,12 +90,6 @@ def discover_v5_address() -> Tuple[Optional[str], str]:
                 return addr, f"deployments ({latest})"
         except Exception:
             pass
-    # Fallback to env vars
-    env_keys = ["FUTARCHY_ARB_EXECUTOR_V5", "EXECUTOR_V5_ADDRESS"]
-    for k in env_keys:
-        v = os.getenv(k)
-        if v:
-            return v, f"env ({k})"
     return None, "unresolved"
 
 
