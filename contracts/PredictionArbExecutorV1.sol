@@ -162,7 +162,6 @@ contract PredictionArbExecutorV1 {
         address swapr_router,
         address tokenIn,
         address tokenOut,
-        uint24 fee,
         uint256 amountOut,
         uint256 maxIn
     ) internal returns (uint256 amountIn) {
@@ -170,21 +169,22 @@ contract PredictionArbExecutorV1 {
         require(tokenIn != address(0) && tokenOut != address(0), "token=0");
         if (amountOut == 0) return 0;
         _ensureMaxAllowance(IERC20(tokenIn), swapr_router);
-        ISwapRouterV3ExactOutput.ExactOutputSingleParams memory p = ISwapRouterV3ExactOutput.ExactOutputSingleParams({
+        IAlgebraSwapRouter.ExactOutputSingleParams memory p = IAlgebraSwapRouter.ExactOutputSingleParams({
             tokenIn: tokenIn,
             tokenOut: tokenOut,
-            fee: fee,
             recipient: address(this),
             deadline: block.timestamp,
             amountOut: amountOut,
             amountInMaximum: maxIn,
-            sqrtPriceLimitX96: 0
+            limitSqrtPrice: 0
         });
-        amountIn = ISwapRouterV3ExactOutput(swapr_router).exactOutputSingle(p);
+        amountIn = IAlgebraSwapRouter(swapr_router).exactOutputSingle(p);
         emit SwaprExactOutExecuted(swapr_router, tokenIn, tokenOut, amountOut, amountIn);
     }
 
-    uint24 internal constant DEFAULT_V3_FEE = 100; // 0.01%
+    // Default fee tier used when pool fee discovery fails.
+    // Swapr pools commonly use 0.05% (500) for conditional markets.
+    uint24 internal constant DEFAULT_V3_FEE = 500; // 0.05%
     function _poolFeeOrDefault(address pool) internal view returns (uint24) {
         if (pool == address(0)) return DEFAULT_V3_FEE;
         try IUniswapV3Pool(pool).fee() returns (uint24 f) {
@@ -280,13 +280,10 @@ contract PredictionArbExecutorV1 {
         emit InitialCollateralSnapshot(currency, initial);
 
         // Step 1: buy YES/NO conditional collateral exact-out (amount each)
-        uint24 yesFee = _poolFeeOrDefault(yes_pool);
-        uint24 noFee  = _poolFeeOrDefault(no_pool);
-
         // We purposely allow large maxIn because the off-chain caller enforces price condition;
         // revert protection is provided by the final profit check.
-        _swaprExactOut(swapr_router, currency, yes_currency, yesFee, amount_conditional_out, type(uint256).max);
-        _swaprExactOut(swapr_router, currency, no_currency,  noFee,  amount_conditional_out, type(uint256).max);
+        _swaprExactOut(swapr_router, currency, yes_currency, amount_conditional_out, type(uint256).max);
+        _swaprExactOut(swapr_router, currency, no_currency,  amount_conditional_out, type(uint256).max);
 
         // Defensive: ensure we indeed hold >= amount on both legs
         require(IERC20(yes_currency).balanceOf(address(this)) >= amount_conditional_out, "insufficient YES_cur");
@@ -326,4 +323,3 @@ contract PredictionArbExecutorV1 {
         require(ok, "eth send failed");
     }
 }
-
