@@ -111,6 +111,8 @@ class ConfigManager:
             },
             "contracts": {
                 "executor_v5": os.getenv("FUTARCHY_ARB_EXECUTOR_V5") or os.getenv("EXECUTOR_V5_ADDRESS"),
+                # Optional: prediction executor v1 address (else discovered from deployments/)
+                "executor_prediction_v1": os.getenv("PREDICTION_ARB_EXECUTOR_V1") or os.getenv("PREDICTION_EXECUTOR_V1_ADDRESS"),
                 "routers": {
                     "balancer": os.getenv("BALANCER_ROUTER_ADDRESS"),
                     "balancer_vault": os.getenv("BALANCER_VAULT_ADDRESS") or os.getenv("BALANCER_VAULT_V3_ADDRESS"),
@@ -246,6 +248,10 @@ class ConfigManager:
         if self.get("proposal.pools.swapr_no_currency_currency.address"):
             env_dict["SWAPR_POOL_PRED_NO_ADDRESS"] = self.get("proposal.pools.swapr_no_currency_currency.address")
             
+        # Prediction executor address passthrough (if explicitly set)
+        if self.get("contracts.executor_prediction_v1"):
+            env_dict["PREDICTION_ARB_EXECUTOR_V1"] = self.get("contracts.executor_prediction_v1")
+
         return env_dict
 
 
@@ -301,12 +307,29 @@ class ArbitrageBot:
         import glob
         import json
         
-        # Try configuration first
+        bot_type = str(self.config.get("bot.type", "balancer") or "balancer").lower()
+
+        if bot_type == "prediction":
+            # Prefer explicit prediction executor address
+            pred_exec = self.config.get("contracts.executor_prediction_v1")
+            if pred_exec:
+                return self.w3.to_checksum_address(pred_exec)
+            # Fallback to latest prediction deployments file
+            deployment_files = sorted(glob.glob("deployments/deployment_prediction_arb_v1_*.json"))
+            if deployment_files:
+                try:
+                    with open(deployment_files[-1], "r") as f:
+                        data = json.load(f)
+                        if data.get("address"):
+                            return self.w3.to_checksum_address(data["address"])
+                except Exception:
+                    pass
+            raise SystemExit("Could not determine PredictionArbExecutorV1 address (set PREDICTION_ARB_EXECUTOR_V1 or keep a deployments file).")
+
+        # Non-prediction: use V5 executor discovery
         executor = self.config.get("contracts.executor_v5")
         if executor:
             return self.w3.to_checksum_address(executor)
-            
-        # Try deployment files
         deployment_files = sorted(glob.glob("deployments/deployment_executor_v5_*.json"))
         if deployment_files:
             try:
@@ -316,8 +339,7 @@ class ArbitrageBot:
                         return self.w3.to_checksum_address(data["address"])
             except Exception:
                 pass
-                
-        raise SystemExit("Could not determine executor contract address")
+        raise SystemExit("Could not determine FutarchyArbExecutorV5 address")
         
     def setup_token_contracts(self) -> None:
         """Setup token contract interfaces for balance checking."""
@@ -355,16 +377,35 @@ class ArbitrageBot:
     def validate_configuration(self) -> None:
         """Ensure all required configuration values are set."""
         bot_type = str(self.config.get("bot.type", "balancer") or "balancer").lower()
-        required_paths = [
-            "proposal.pools.swapr_yes_company_yes_currency.address",
-            "proposal.pools.swapr_yes_currency_currency.address",
-            "proposal.pools.swapr_no_company_no_currency.address",
-            "wallet.private_key",
-            "network.rpc_url"
-        ]
-        # Only require Balancer pool in balancer/pnk modes
-        if bot_type != "kleros":
-            required_paths.append("proposal.pools.balancer_company_currency.address")
+
+        if bot_type == "prediction":
+            required_paths = [
+                # Core
+                "wallet.private_key",
+                "network.rpc_url",
+                "proposal.address",
+                # Tokens (currency + conditional currency)
+                "proposal.tokens.currency.address",
+                "proposal.tokens.yes_currency.address",
+                "proposal.tokens.no_currency.address",
+                # Pools (prediction YES/NO vs currency)
+                "proposal.pools.swapr_yes_currency_currency.address",
+                "proposal.pools.swapr_no_currency_currency.address",
+                # Routers
+                "contracts.routers.swapr",
+                "contracts.routers.futarchy",
+            ]
+        else:
+            required_paths = [
+                "proposal.pools.swapr_yes_company_yes_currency.address",
+                "proposal.pools.swapr_yes_currency_currency.address",
+                "proposal.pools.swapr_no_company_no_currency.address",
+                "wallet.private_key",
+                "network.rpc_url"
+            ]
+            # Only require Balancer pool in balancer/pnk modes
+            if bot_type != "kleros":
+                required_paths.append("proposal.pools.balancer_company_currency.address")
         
         missing = []
         for path in required_paths:
@@ -519,7 +560,7 @@ class ArbitrageBot:
                 return tx_hash
         return None
     
-    def execute_arbitrage(self, flow: str, cheaper: str, amount: float, 
+    def execute_arbitrage(self, flow: Optional[str], cheaper: Optional[str], amount: float, 
                          min_profit: float, dry_run: bool, prefund: bool) -> Tuple[bool, Optional[str]]:
         """
         Execute arbitrage trade via the arbitrage_executor module.
@@ -527,22 +568,35 @@ class ArbitrageBot:
         Returns:
             (success, tx_hash): True if execution was successful and optional transaction hash
         """
-        # Select executor module by bot type (default: balancer)
         bot_type = str(self.config.get("bot.type", "balancer") or "balancer").lower()
-        module = (
-            "src.executor.arbitrage_pnk_executor"
-            if bot_type in ("pnk", "kleros")
-            else "src.executor.arbitrage_executor"
-        )
 
-        # Build command for chosen executor
-        cmd = [
-            sys.executable, "-m", module,
-            "--flow", flow,
-            "--amount", str(amount),
-            "--cheaper", cheaper,
-            "--min-profit", str(min_profit)
-        ]
+        # Prediction mode delegates to prediction_arb_executor (no price args)
+        if bot_type == "prediction":
+            module = "src.executor.prediction_arb_executor"
+            cmd = [
+                sys.executable, "-m", module,
+                "--amount", str(amount),
+                "--min-profit", str(min_profit),
+            ]
+            # Optional force-flow passthrough
+            force_flow = self.config.get("bot.run_options.force_flow")
+            if force_flow in ("buy", "sell"):
+                cmd.extend(["--force-flow", force_flow])
+        else:
+            # Select executor module by bot type (default: balancer)
+            module = (
+                "src.executor.arbitrage_pnk_executor"
+                if bot_type in ("pnk", "kleros")
+                else "src.executor.arbitrage_executor"
+            )
+            # Build command for chosen executor
+            cmd = [
+                sys.executable, "-m", module,
+                "--flow", str(flow or "buy"),
+                "--amount", str(amount),
+                "--cheaper", str(cheaper or "swapr"),
+                "--min-profit", str(min_profit)
+            ]
         
         # Add env file if specified
         if self.config.env_file:
@@ -555,7 +609,10 @@ class ArbitrageBot:
             print(f"\n[DRY RUN] Would execute: {' '.join(cmd)}")
             return True, None
             
-        print(f"\nExecuting arbitrage: {flow.upper()} flow, {cheaper.upper()} cheaper")
+        if bot_type == "prediction":
+            print(f"\nExecuting prediction arbitrage via prediction_arb_executor")
+        else:
+            print(f"\nExecuting arbitrage: {str(flow or '').upper()} flow, {str(cheaper or '').upper()} cheaper")
         print(f"Executor type: {bot_type}")
         print(f"Command: {' '.join(cmd)}")
         
@@ -630,30 +687,70 @@ class ArbitrageBot:
             print('='*60)
             
             try:
-                # Fetch current prices
-                prices = self.fetch_prices()
-                
-                # Check for arbitrage opportunity
-                flow, cheaper = self.determine_opportunity(prices, tolerance)
-                
-                if flow and cheaper:
-                    # Get balances before trade
+                bot_type = str(self.config.get("bot.type", "balancer") or "balancer").lower()
+
+                if bot_type == "prediction":
+                    # In prediction mode we do not do price checks; delegate to executor
                     if not dry_run:
                         print("\n--- Pre-trade balances (Executor Contract) ---")
                         balances_before = self.get_balances()
                         sdai_before = balances_before.get("sDAI", 0)
                         print(f"  sDAI: {sdai_before:.6f}")
                         self.check_residual_balances(balances_before)
-                        
-                        # Also check wallet balance
                         wallet_balances = self.get_wallet_balances()
                         wallet_sdai_before = wallet_balances.get("sDAI", 0)
                         print(f"\n--- Wallet sDAI: {wallet_sdai_before:.6f} ---")
-                    
-                    # Execute trade
+
                     success, tx_hash = self.execute_arbitrage(
-                        flow, cheaper, amount, min_profit, dry_run, prefund
+                        None, None, amount, min_profit, dry_run, prefund
                     )
+
+                    if success and not dry_run:
+                        print("\n--- Post-trade balances (Executor Contract) ---")
+                        balances_after = self.get_balances()
+                        sdai_after = balances_after.get("sDAI", 0)
+                        sdai_change = sdai_after - sdai_before
+                        print(f"  sDAI: {sdai_after:.6f}")
+                        print(f"  Net sDAI change (Executor): {sdai_change:+.6f} {'✅' if sdai_change >= 0 else '❌'}")
+                        self.check_residual_balances(balances_after)
+                        wallet_balances_after = self.get_wallet_balances()
+                        wallet_sdai_after = wallet_balances_after.get("sDAI", 0)
+                        wallet_change = wallet_sdai_after - wallet_sdai_before
+                        if abs(wallet_change) > 0.000001:
+                            print(f"\n--- Wallet sDAI: {wallet_sdai_after:.6f} (change: {wallet_change:+.6f}) ---")
+
+                        # No price re-fetch in prediction mode; executor already made decision
+                        print("\n📊 Trade Summary:")
+                        print(f"   Flow: delegated to executor")
+                        print(f"   Amount: {amount} sDAI")
+                        print(f"   Net Profit (Executor): {sdai_change:+.6f} sDAI")
+                        print(f"   Min Profit Target: {min_profit:+.6f} sDAI")
+                        print(f"   Target Met: {'✅ Yes' if sdai_change >= min_profit else '❌ No'}")
+                        print(f"   Executor Address: {self.executor_address}")
+                        if tx_hash:
+                            print(f"\n🔗 Transaction: https://gnosisscan.io/tx/{tx_hash}")
+                else:
+                    # Existing flow: prices → opportunity → execute
+                    prices = self.fetch_prices()
+                    flow, cheaper = self.determine_opportunity(prices, tolerance)
+                    if flow and cheaper:
+                        # Get balances before trade
+                        if not dry_run:
+                            print("\n--- Pre-trade balances (Executor Contract) ---")
+                            balances_before = self.get_balances()
+                            sdai_before = balances_before.get("sDAI", 0)
+                            print(f"  sDAI: {sdai_before:.6f}")
+                            self.check_residual_balances(balances_before)
+                            
+                            # Also check wallet balance
+                            wallet_balances = self.get_wallet_balances()
+                            wallet_sdai_before = wallet_balances.get("sDAI", 0)
+                            print(f"\n--- Wallet sDAI: {wallet_sdai_before:.6f} ---")
+                        
+                        # Execute trade
+                        success, tx_hash = self.execute_arbitrage(
+                            flow, cheaper, amount, min_profit, dry_run, prefund
+                        )
                     
                     if success and not dry_run:
                         # Get balances after trade
@@ -738,6 +835,16 @@ def main():
     
     # Runtime parameters (can override config)
     parser.add_argument(
+        "--bot-type",
+        choices=["balancer", "kleros", "pnk", "prediction"],
+        help="Override bot.type (prediction delegates to prediction_arb_executor)"
+    )
+    parser.add_argument(
+        "--force-flow",
+        choices=["buy", "sell"],
+        help="Prediction mode only: force a specific flow at the executor"
+    )
+    parser.add_argument(
         "--amount",
         type=float,
         help="Amount of base currency to use for trades (overrides config)"
@@ -783,6 +890,18 @@ def main():
             tolerance=args.tolerance,
             min_profit=args.min_profit
         )
+
+        # Optional overrides: bot-type and force-flow for prediction mode
+        if args.bot_type:
+            if "bot" not in config.config:
+                config.config["bot"] = {}
+            config.config["bot"]["type"] = args.bot_type
+        if args.force_flow:
+            if "bot" not in config.config:
+                config.config["bot"] = {"run_options": {}}
+            if "run_options" not in config.config["bot"]:
+                config.config["bot"]["run_options"] = {}
+            config.config["bot"]["run_options"]["force_flow"] = args.force_flow
         
         # Validate we have required runtime parameters
         if not config.get("bot.run_options.amount") and not args.amount:
@@ -797,11 +916,14 @@ def main():
             else:
                 parser.error("bot.run_options.interval_seconds not found in config and --interval not provided")
                 
-        if not config.get("bot.run_options.tolerance") and not args.tolerance:
-            if args.env_file:
-                parser.error("--tolerance is required when using --env")
-            else:
-                parser.error("bot.run_options.tolerance not found in config and --tolerance not provided")
+        # Only require tolerance for non-prediction modes
+        bot_type_cli = (args.bot_type or str(config.get("bot.type", "balancer") or "balancer")).lower()
+        if bot_type_cli != "prediction":
+            if not config.get("bot.run_options.tolerance") and not args.tolerance:
+                if args.env_file:
+                    parser.error("--tolerance is required when using --env")
+                else:
+                    parser.error("bot.run_options.tolerance not found in config and --tolerance not provided")
         
         # Create and run bot
         bot = ArbitrageBot(config)
