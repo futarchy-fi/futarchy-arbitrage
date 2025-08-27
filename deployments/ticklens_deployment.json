@@ -1,0 +1,11 @@
+{
+  "address": "0x562cEf8372cD422Af14Ca30D8f5E4F14b9C2fEc5",
+  "tx": "afc4d51b68c9119826b2b79860b7d0112a723cb64df80a45efe52816cb4516d8",
+  "block": 41808289,
+  "gasUsed": 883401,
+  "chainId": 100,
+  "timestamp": 1756251570,
+  "artifact": "ticklens-hardhat/node_modules/@cryptoalgebra/integral-periphery/artifacts/contracts/lens/TickLens.sol/TickLens.json",
+  "network": "gnosis",
+  "contract": "TickLens"
+}
