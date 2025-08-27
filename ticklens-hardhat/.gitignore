@@ -1,0 +1,17 @@
+# Hardhat build outputs
+artifacts/
+cache/
+coverage/
+
+# Node modules and lock backup
+node_modules/
+.package-lock.json
+
+# Env files
+.env
+.env.local
+.env.*
+
+# Vendored packages/tarballs and unpacked packages
+*.tgz
+package/

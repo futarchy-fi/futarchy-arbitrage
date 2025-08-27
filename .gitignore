@@ -48,3 +48,13 @@ balancer_logs.txt
 # Node.js
 node_modules/
 **/node_modules/
+
+# Editor
+.vscode/
+
+# Hardhat project outputs
+ticklens-hardhat/artifacts/
+ticklens-hardhat/cache/
+ticklens-hardhat/coverage/
+ticklens-hardhat/*.tgz
+ticklens-hardhat/package/
