@@ -1,0 +1,23 @@
+{
+  "name": "ticklens-hardhat",
+  "version": "1.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-ethers": "^3.0.5",
+    "@nomicfoundation/hardhat-verify": "^2.0.7",
+    "dotenv": "^16.4.5",
+    "ethers": "^6.12.0",
+    "hardhat": "^2.22.9"
+  },
+  "dependencies": {
+    "@cryptoalgebra/integral-periphery": "^1.2.4",
+    "@cryptoalgebra/integral-core": "^1.2.9"
+  },
+  "scripts": {
+    "compile": "hardhat compile",
+    "deploy:gnosis": "hardhat run scripts/deploy-ticklens.js --network gnosis",
+    "verify:gnosis": "hardhat verify --network gnosis"
+  }
+}
