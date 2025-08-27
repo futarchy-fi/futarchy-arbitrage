@@ -39,3 +39,12 @@ temp/
 
 # Configuration files with potential private keys
 config/*.json
+
+# Logs
+*.log
+*.log.*
+balancer_logs.txt
+
+# Node.js
+node_modules/
+**/node_modules/
