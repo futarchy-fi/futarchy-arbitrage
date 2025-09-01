@@ -104,3 +104,35 @@ Single-shot derivation with in-memory mnemonic + password:
 
 - `python -m src.setup.cli hd-new --count 2 --path-base "m/44'/60'/0'/0" --out build/wallets_hd_new --print-secrets`
 - This prints the mnemonic and the keystore password once (not stored). Save them securely if you need to decrypt later.
+
+## PRIVATE_KEY-only minimal flow
+
+The keystore password can be derived deterministically from `PRIVATE_KEY` in `.env` — no `WALLET_KEYSTORE_PASSWORD` required.
+
+1) Create a `.env.pk` containing a fresh `PRIVATE_KEY`:
+
+```bash
+python - << 'PY'
+from eth_account import Account
+acct = Account.create()
+open('.env.pk','w').write('PRIVATE_KEY=0x'+bytes(acct.key).hex()+'\n')
+print('Wrote .env.pk')
+PY
+```
+
+2) Create a keystore using only `.env.pk` (no password flags):
+
+```bash
+python -m src.setup.cli keystore-create --private-key-env PRIVATE_KEY --env-file .env.pk --out build/env_only_test
+```
+
+3) Decrypt the keystore using only `.env.pk` (no password flags):
+
+```bash
+FILE=$(ls -t build/env_only_test/*.json | head -n1)
+python -m src.setup.cli keystore-decrypt --file "$FILE" --env-file .env.pk --private-key-env PRIVATE_KEY
+```
+
+Notes:
+- The keystore password is derived from `PRIVATE_KEY` in-memory; do not delete `.env.pk` if you plan to decrypt later.
+- You can replace `.env.pk` with any `.env` file that only contains `PRIVATE_KEY=0x...` and the commands still work.

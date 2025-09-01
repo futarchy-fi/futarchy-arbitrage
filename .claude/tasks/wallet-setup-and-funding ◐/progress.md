@@ -95,7 +95,7 @@ Common flags: `--rpc-url`, `--chain-id`, `--keystore-dir`, `--index`, `--batch-s
 ## Subtasks
 
 1) Keystore – `.claude/tasks/wallet-setup-and-funding ◐/subtask-1-keystore ✅.md`
-2) Wallet Manager – `.claude/tasks/wallet-setup-and-funding ◐/subtask-2-wallet-manager.md`
+2) Wallet Manager – `.claude/tasks/wallet-setup-and-funding ◐/subtask-2-wallet-manager ◐.md`
 3) Fund xDAI – `.claude/tasks/wallet-setup-and-funding ◐/subtask-3-fund-xdai.md`
 4) Fund ERC20 – `.claude/tasks/wallet-setup-and-funding ◐/subtask-4-fund-erc20.md`
 
