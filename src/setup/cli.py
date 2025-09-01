@@ -14,7 +14,24 @@ try:
     from dotenv import load_dotenv
 except Exception:
     def load_dotenv(path: Optional[str] = None):
-        return False
+        """Lightweight .env loader fallback: KEY=VALUE per line, supports optional 'export ' prefix."""
+        if not path:
+            return False
+        try:
+            with open(path, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if line.startswith("export "):
+                        line = line[7:]
+                    if "=" in line:
+                        key, val = line.split("=", 1)
+                        val = val.strip().strip('"').strip("'")
+                        os.environ.setdefault(key, val)
+            return True
+        except Exception:
+            return False
 import secrets
 import string
 
@@ -26,6 +43,15 @@ from .keystore import (
     read_keystore,
     write_env_private_key,
     derive_privkey_from_mnemonic,
+)
+from .wallet_manager import (
+    load_index,
+    save_index,
+    scan_keystores,
+    derive_hd_batch,
+    create_random_wallets,
+    import_private_keys,
+    upsert_record,
 )
 
 
@@ -54,7 +80,7 @@ def cmd_keystore_create(args: argparse.Namespace) -> int:
                 priv_hex = "0x" + bytes(acct.key).hex()
 
         # Resolve password
-        password = resolve_password(args.keystore_pass, args.keystore_pass_env)
+        password = resolve_password(args.keystore_pass, args.keystore_pass_env, args.private_key_env or "PRIVATE_KEY")
         keystore, address = encrypt_private_key(priv_hex, password)
 
         out_dir = Path(args.out or "build/wallets")
@@ -93,7 +119,7 @@ def cmd_keystore_decrypt(args: argparse.Namespace) -> int:
             print(f"Keystore file not found: {path}", file=sys.stderr)
             return 1
         keystore_json = read_keystore(path)
-        password = resolve_password(args.keystore_pass, args.keystore_pass_env)
+        password = resolve_password(args.keystore_pass, args.keystore_pass_env, args.private_key_env or "PRIVATE_KEY")
         priv_hex = decrypt_keystore(keystore_json, password)
 
         # Derive address
@@ -138,6 +164,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_decrypt.add_argument("--file", required=True, help="Path to keystore JSON file")
     p_decrypt.add_argument("--keystore-pass", dest="keystore_pass", help="Keystore password")
     p_decrypt.add_argument("--keystore-pass-env", dest="keystore_pass_env", help="Env var name for password (default WALLET_KEYSTORE_PASSWORD)")
+    p_decrypt.add_argument("--private-key-env", dest="private_key_env", help="Env var name holding a private key (default PRIVATE_KEY) for password fallback")
     p_decrypt.add_argument("--env-file", help="Path to .env file to load before resolving env vars")
     p_decrypt.add_argument("--show-private-key", action="store_true", help="Print the private key (requires --insecure-plain)")
     p_decrypt.add_argument("--insecure-plain", action="store_true", help="Acknowledge insecurity when printing private key")
@@ -165,7 +192,7 @@ def build_parser() -> argparse.ArgumentParser:
                 print("Mnemonic not provided (use --mnemonic or --mnemonic-env)", file=sys.stderr)
                 return 2
             priv_hex, address = derive_privkey_from_mnemonic(mnemonic.strip(), args.path)
-            password = resolve_password(args.keystore_pass, args.keystore_pass_env)
+            password = resolve_password(args.keystore_pass, args.keystore_pass_env, "PRIVATE_KEY")
             keystore, _ = encrypt_private_key(priv_hex, password)
             out_dir = Path(args.out or "build/wallets")
             ks_path = write_keystore(out_dir, address, keystore)
@@ -230,6 +257,181 @@ def build_parser() -> argparse.ArgumentParser:
             print(f"Error: {e}", file=sys.stderr)
             return 1
     p_new.set_defaults(func=_cmd_hd_new)
+
+    # hd-from-env: read PRIVATE_KEY from --env-file, generate mnemonic, derive batch, and write an .env with MNEMONIC + WALLET_KEYSTORE_PASSWORD
+    p_hfe = sub.add_parser("hd-from-env", help="Generate an HD seed from env PRIVATE_KEY, derive N accounts, and write an .env with MNEMONIC + WALLET_KEYSTORE_PASSWORD")
+    p_hfe.add_argument("--env-file", required=True, help="Path to .env file that contains PRIVATE_KEY")
+    p_hfe.add_argument("--out-env", required=True, help="Path to write the resulting .env with MNEMONIC and WALLET_KEYSTORE_PASSWORD")
+    p_hfe.add_argument("--count", type=int, default=1, help="Number of consecutive accounts to derive (default 1)")
+    p_hfe.add_argument("--path-base", default="m/44'/60'/0'/0", help="Base derivation path (default m/44'/60'/0'/0)")
+    p_hfe.add_argument("--out", help="Output directory for keystore files (default build/wallets)")
+    p_hfe.add_argument("--print-secrets", action="store_true", help="Also print the generated mnemonic and password")
+    def _cmd_hd_from_env(args: argparse.Namespace) -> int:
+        try:
+            # Load source env to get PRIVATE_KEY
+            load_dotenv(args.env_file)
+            pk = os.getenv("PRIVATE_KEY")
+            if not pk:
+                print("PRIVATE_KEY not found in --env-file", file=sys.stderr)
+                return 2
+            # Derive keystore password deterministically from PRIVATE_KEY
+            password = resolve_password(None, None, "PRIVATE_KEY")
+
+            # Create mnemonic and derive batch
+            Account.enable_unaudited_hdwallet_features()
+            acct, mnemonic = Account.create_with_mnemonic()
+
+            out_dir = Path(args.out or "build/wallets")
+            base = args.path_base
+            print("Deriving accounts:")
+            for i in range(int(args.count)):
+                path = f"{base}/{i}"
+                priv_hex, address = derive_privkey_from_mnemonic(mnemonic, path)
+                keystore, _ = encrypt_private_key(priv_hex, password)
+                ks_path = write_keystore(out_dir, address, keystore)
+                print(f"  [{i}] {address} @ {path} -> {ks_path}")
+
+            # Write out .env with MNEMONIC and WALLET_KEYSTORE_PASSWORD for future runs
+            out_env = Path(args.out_env)
+            out_env.parent.mkdir(parents=True, exist_ok=True)
+            with open(out_env, "w") as f:
+                f.write(f"MNEMONIC='{mnemonic}'\n")
+                f.write(f"WALLET_KEYSTORE_PASSWORD={password}\n")
+                f.write(f"HD_PATH_BASE=\"{base}\"\n")
+            print(f"Wrote seed env: {out_env}")
+            if args.print_secrets:
+                print("\nSECRETS (Copied to out-env):")
+                print(f"Mnemonic: {mnemonic}")
+                print(f"Keystore password: {password}")
+            return 0
+        except Exception as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+    p_hfe.set_defaults(func=_cmd_hd_from_env)
+
+    # generate: batch create wallets (hd|random) and update index
+    p_gen = sub.add_parser("generate", help="Generate a batch of wallets (HD or random) and update index")
+    p_gen.add_argument("--mode", choices=["hd", "random"], default="hd", help="Generation mode (default hd)")
+    p_gen.add_argument("--count", type=int, default=1, help="Number of wallets to generate (default 1)")
+    p_gen.add_argument("--start", type=int, default=0, help="Start index for HD derivation (default 0)")
+    p_gen.add_argument("--path-base", default="m/44'/60'/0'/0", help="Base path for HD mode (default m/44'/60'/0'/0)")
+    p_gen.add_argument("--mnemonic", help="BIP-39 mnemonic (HD mode)")
+    p_gen.add_argument("--mnemonic-env", help="Env var name for mnemonic (HD mode)")
+    p_gen.add_argument("--keystore-pass", dest="keystore_pass", help="Keystore password")
+    p_gen.add_argument("--keystore-pass-env", dest="keystore_pass_env", help="Env var for password (default WALLET_KEYSTORE_PASSWORD)")
+    p_gen.add_argument("--out", help="Keystore output directory (default build/wallets)")
+    p_gen.add_argument("--index", help="Index file path (default build/wallets/index.json)")
+    p_gen.add_argument("--tag", action="append", help="Add tag(s) to records (repeatable)")
+    p_gen.add_argument("--emit-env", action="store_true", help="Also write plaintext .env.<address> (insecure)")
+    p_gen.add_argument("--insecure-plain", action="store_true", help="Acknowledge insecurity when writing plaintext env files")
+    p_gen.add_argument("--env-file", help="Path to .env file for resolving env vars (mnemonic/password)")
+    def _cmd_generate(args: argparse.Namespace) -> int:
+        try:
+            if args.env_file:
+                load_dotenv(args.env_file)
+            out_dir = Path(args.out or "build/wallets")
+            index_path = Path(args.index or (out_dir / "index.json"))
+            # Resolve password (fallback to PRIVATE_KEY-derived if no WALLET_KEYSTORE_PASSWORD)
+            password = resolve_password(args.keystore_pass, args.keystore_pass_env, "PRIVATE_KEY")
+            # Create records
+            if args.mode == "hd":
+                # Resolve mnemonic from CLI or env (.env provides MNEMONIC)
+                mnemonic = args.mnemonic or (os.getenv(args.mnemonic_env) if args.mnemonic_env else None) or os.getenv("MNEMONIC")
+                if not mnemonic:
+                    print("HD mode requires MNEMONIC in --env-file or via --mnemonic/--mnemonic-env", file=sys.stderr)
+                    return 2
+                # Resolve base derivation path from env if provided
+                path_base = os.getenv("HD_PATH_BASE") or args.path_base
+                new_records = derive_hd_batch(mnemonic.strip(), path_base, args.start, args.count, password, out_dir, tags=args.tag or [], emit_env=args.emit_env, insecure_plain=args.insecure_plain)
+            else:
+                new_records = create_random_wallets(args.count, password, out_dir, tags=args.tag or [], emit_env=args.emit_env, insecure_plain=args.insecure_plain)
+
+            # Update index
+            existing = load_index(index_path)
+            for rec in new_records:
+                existing = upsert_record(existing, rec)
+            save_index(index_path, existing)
+
+            print(f"Generated {len(new_records)} wallet(s). Index: {index_path}")
+            for r in new_records:
+                print(f" - {r['address']} -> {r['keystore_path']}" + (f" @ {r.get('path')}" if r.get('path') else ""))
+            return 0
+        except Exception as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+    p_gen.set_defaults(func=_cmd_generate)
+
+    # list: show wallets from index or keystore directory
+    p_list = sub.add_parser("list", help="List wallets from index or keystore directory")
+    p_list.add_argument("--out", help="Keystore directory (default build/wallets)")
+    p_list.add_argument("--index", help="Index file (default build/wallets/index.json)")
+    p_list.add_argument("--format", choices=["table", "json"], default="table")
+    def _cmd_list(args: argparse.Namespace) -> int:
+        try:
+            out_dir = Path(args.out or "build/wallets")
+            index_path = Path(args.index or (out_dir / "index.json"))
+            records = load_index(index_path)
+            if not records:
+                # fallback: scan
+                records = scan_keystores(out_dir)
+            if args.format == "json":
+                print(json.dumps({"wallets": records}, indent=2))
+            else:
+                for r in records:
+                    addr = r.get("address")
+                    path = r.get("path", "-")
+                    tags = ",".join(r.get("tags", [])) or "-"
+                    print(f"{addr} | {path} | {tags} | {r.get('keystore_path')}")
+            return 0
+        except Exception as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+    p_list.set_defaults(func=_cmd_list)
+
+    # import-keys: import from file or repeated --key
+    p_imp = sub.add_parser("import-keys", help="Import private keys and write keystores; update index")
+    src_group = p_imp.add_mutually_exclusive_group(required=True)
+    src_group.add_argument("--file", help="Path to file with one private key per line")
+    src_group.add_argument("--key", action="append", help="Private key(s) (repeatable)")
+    p_imp.add_argument("--keystore-pass", dest="keystore_pass", help="Keystore password")
+    p_imp.add_argument("--keystore-pass-env", dest="keystore_pass_env", help="Env var for password (default WALLET_KEYSTORE_PASSWORD)")
+    p_imp.add_argument("--out", help="Keystore directory (default build/wallets)")
+    p_imp.add_argument("--index", help="Index file (default build/wallets/index.json)")
+    p_imp.add_argument("--tag", action="append", help="Add tag(s) to records (repeatable)")
+    p_imp.add_argument("--emit-env", action="store_true", help="Also write plaintext .env.<address> (insecure)")
+    p_imp.add_argument("--insecure-plain", action="store_true", help="Acknowledge insecurity when writing plaintext env files")
+    p_imp.add_argument("--env-file", help="Path to .env file for resolving env vars (password)")
+    def _cmd_import(args: argparse.Namespace) -> int:
+        try:
+            if args.env_file:
+                load_dotenv(args.env_file)
+            out_dir = Path(args.out or "build/wallets")
+            index_path = Path(args.index or (out_dir / "index.json"))
+            password = resolve_password(args.keystore_pass, args.keystore_pass_env)
+            keys: List[str] = []
+            if args.file:
+                with open(args.file, "r") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#"):
+                            keys.append(line)
+            else:
+                keys = args.key or []
+            new_records = import_private_keys(keys, password, out_dir, tags=args.tag or [], emit_env=args.emit_env, insecure_plain=args.insecure_plain)
+            existing = load_index(index_path)
+            # simple merge avoiding duplicates
+            seen = {r.get('address') for r in existing}
+            for r in new_records:
+                if r['address'] not in seen:
+                    existing.append(r)
+                    seen.add(r['address'])
+            save_index(index_path, existing)
+            print(f"Imported {len(new_records)} key(s). Index: {index_path}")
+            return 0
+        except Exception as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+    p_imp.set_defaults(func=_cmd_import)
 
     return parser
 
