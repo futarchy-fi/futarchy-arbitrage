@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import hashlib
 import tempfile
 from pathlib import Path
 from typing import Optional, Dict, Any, Tuple
@@ -24,7 +25,7 @@ def _normalize_privkey_hex(pk: str) -> str:
     return "0x" + pk
 
 
-def resolve_password(cli_pass: Optional[str], pass_env: Optional[str]) -> str:
+def resolve_password(cli_pass: Optional[str], pass_env: Optional[str], pk_env_name: Optional[str] = None) -> str:
     """Resolve keystore password from CLI or environment variable name.
 
     Precedence: cli_pass > env[pass_env] > env["WALLET_KEYSTORE_PASSWORD"].
@@ -34,11 +35,21 @@ def resolve_password(cli_pass: Optional[str], pass_env: Optional[str]) -> str:
         return cli_pass
     env_name = pass_env or "WALLET_KEYSTORE_PASSWORD"
     pwd = os.getenv(env_name) or os.getenv("WALLET_KEYSTORE_PASSWORD")
-    if not pwd:
-        raise ValueError(
-            "Keystore password not provided. Use --keystore-pass or set WALLET_KEYSTORE_PASSWORD (or provide --keystore-pass-env)."
-        )
-    return pwd
+    if pwd:
+        return pwd
+    # Optional fallback: derive a deterministic password from PRIVATE_KEY in env
+    if pk_env_name:
+        pk = os.getenv(pk_env_name) or os.getenv("PRIVATE_KEY")
+        if pk:
+            s = pk.strip()
+            if s.startswith("0x"):
+                s = s[2:]
+            # Derive a hex password deterministically from the private key
+            digest = hashlib.sha256(("keystore:" + s).encode()).hexdigest()
+            return digest
+    raise ValueError(
+        "Keystore password not provided. Use --keystore-pass, set WALLET_KEYSTORE_PASSWORD (or provide --keystore-pass-env), or provide PRIVATE_KEY in env."
+    )
 
 
 def encrypt_private_key(private_key_hex: str, password: str) -> Tuple[Dict[str, Any], str]:
