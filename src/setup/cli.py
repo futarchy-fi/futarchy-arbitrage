@@ -54,6 +54,7 @@ from .wallet_manager import (
     upsert_record,
 )
 from .fund_xdai import fund_xdai as _fund_xdai, GasConfig as _GasConfig
+from .fund_erc20 import fund_erc20 as _fund_erc20, GasConfig as _GasConfig20
 
 
 def cmd_keystore_create(args: argparse.Namespace) -> int:
@@ -507,6 +508,196 @@ def build_parser() -> argparse.ArgumentParser:
             print(f"Error: {e}", file=sys.stderr)
             return 1
     p_fx.set_defaults(func=_cmd_fund_xdai)
+
+    # fund-sdai: top up ERC20 (sDAI) to a target balance per wallet
+    p_fe = sub.add_parser("fund-sdai", help="Top up ERC20 (sDAI) to a target balance per wallet")
+    p_fe.add_argument("--amount", required=True, help="Target token balance per wallet in human units (e.g., 5.0)")
+    p_fe.add_argument("--token", help="ERC20 token address (defaults to $SDAI_TOKEN_ADDRESS from env)")
+    p_fe.add_argument("--from-env", dest="from_env", default="FUNDER_PRIVATE_KEY", help="Env var holding funder PRIVATE_KEY (default FUNDER_PRIVATE_KEY; fallback PRIVATE_KEY)")
+    p_fe.add_argument("--out", help="Keystore directory (default build/wallets)")
+    p_fe.add_argument("--index", help="Index file (default <out>/index.json)")
+    p_fe.add_argument("--only", help="Filter recipients: CSV of addresses or glob pattern against addresses (e.g., '0xAbc*')")
+    p_fe.add_argument("--only-path", dest="only_path", help="Filter by HD derivation path or glob (matches index records' path)")
+    p_fe.add_argument("--ensure-path", dest="ensure_path", help="CSV of HD derivation paths to ensure (create keystores if missing) and fund")
+    p_fe.add_argument("--mnemonic", help="BIP-39 mnemonic (used when ensuring missing paths)")
+    p_fe.add_argument("--mnemonic-env", help="Env var name for mnemonic (used when ensuring missing paths)")
+    p_fe.add_argument("--keystore-pass", dest="keystore_pass", help="Keystore password (used when ensuring missing paths)")
+    p_fe.add_argument("--keystore-pass-env", dest="keystore_pass_env", help="Env var for password (used when ensuring missing paths)")
+    p_fe.add_argument("--always", action="store_true", help="Always send exactly --amount to each target (not top-up)")
+    p_fe.add_argument("--env-file", help="Path to .env file to load before resolving env and RPC")
+    p_fe.add_argument("--rpc-url", help="Override RPC URL (defaults to RPC_URL or GNOSIS_RPC_URL)")
+    p_fe.add_argument("--chain-id", type=int, default=100, help="Expected chainId (default 100 for Gnosis)")
+    p_fe.add_argument("--gas-limit", type=int, default=90000, help="Gas limit per ERC20 transfer (default 90000)")
+    gas_mode_e = p_fe.add_mutually_exclusive_group()
+    gas_mode_e.add_argument("--legacy", action="store_true", help="Use legacy gasPrice instead of EIP-1559")
+    p_fe.add_argument("--gas-price-gwei", type=float, default=1.0, help="Legacy gasPrice in gwei (used when --legacy)")
+    p_fe.add_argument("--max-fee-gwei", type=float, default=2.0, help="EIP-1559 maxFeePerGas in gwei (default 2)")
+    p_fe.add_argument("--priority-fee-gwei", type=float, default=1.0, help="EIP-1559 maxPriorityFeePerGas in gwei (default 1)")
+    p_fe.add_argument("--timeout", type=int, default=120, help="Wait timeout (seconds) for each receipt (default 120)")
+    p_fe.add_argument("--dry-run", action="store_true", help="Do not send transactions; write plan JSON only")
+    p_fe.add_argument("--confirm", action="store_true", help="Confirm execution; without this flag, a plan is written and no txs are sent")
+    p_fe.add_argument("--log", help="Path to write JSON log (default build/wallets/funding_<timestamp>.json)")
+    def _cmd_fund_sdai(args: argparse.Namespace) -> int:
+        try:
+            from decimal import Decimal
+
+            out_dir = Path(args.out or "build/wallets")
+            index_path = Path(args.index) if args.index else (out_dir / "index.json")
+            # Token resolution
+            token = args.token or os.getenv("SDAI_TOKEN_ADDRESS")
+            # Gas config
+            if args.legacy:
+                gas = _GasConfig20(type="legacy", gas_limit=int(args.gas_limit), gas_price_gwei=Decimal(str(args.gas_price_gwei)))
+            else:
+                gas = _GasConfig20(
+                    type="eip1559",
+                    gas_limit=int(args.gas_limit),
+                    max_fee_gwei=Decimal(str(args.max_fee_gwei)),
+                    prio_fee_gwei=Decimal(str(args.priority_fee_gwei)),
+                )
+            log_path = Path(args.log) if args.log else None
+            rc = _fund_erc20(
+                token=token,
+                out_dir=out_dir,
+                index_path=index_path,
+                amount_token=str(args.amount),
+                from_env=args.from_env,
+                env_file=args.env_file,
+                rpc_url=args.rpc_url,
+                chain_id=int(args.chain_id),
+                only=args.only,
+                only_path=args.only_path,
+                ensure_paths=args.ensure_path,
+                ensure_mnemonic=args.mnemonic,
+                ensure_mnemonic_env=args.mnemonic_env,
+                keystore_pass=args.keystore_pass,
+                keystore_pass_env=args.keystore_pass_env,
+                always_send=bool(args.always),
+                gas=gas,
+                timeout=int(args.timeout),
+                dry_run=bool(args.dry_run),
+                log_path=log_path,
+                require_confirm=not bool(args.confirm),
+            )
+            return int(rc)
+        except Exception as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+    p_fe.set_defaults(func=_cmd_fund_sdai)
+
+    # fund-all: ensure paths (optional) and fund both xDAI and sDAI
+    p_fa = sub.add_parser("fund-all", help="Ensure HD paths (optional) and fund both xDAI and sDAI in one command")
+    # Amounts (at least one required)
+    p_fa.add_argument("--xdai", help="Target xDAI balance per wallet (ether)")
+    p_fa.add_argument("--sdai", help="Target sDAI token balance per wallet (human units)")
+    p_fa.add_argument("--token", help="ERC20 token address for sDAI (defaults to $SDAI_TOKEN_ADDRESS)")
+    p_fa.add_argument("--from-env", dest="from_env", default="FUNDER_PRIVATE_KEY", help="Env var holding funder PRIVATE_KEY (default FUNDER_PRIVATE_KEY; fallback PRIVATE_KEY)")
+    p_fa.add_argument("--out", help="Keystore directory (default build/wallets)")
+    p_fa.add_argument("--index", help="Index file (default <out>/index.json)")
+    p_fa.add_argument("--only", help="Filter recipients: CSV of addresses or glob pattern against addresses")
+    p_fa.add_argument("--only-path", dest="only_path", help="Filter by HD derivation path or glob (matches index records' path)")
+    p_fa.add_argument("--ensure-path", dest="ensure_path", help="CSV of HD derivation paths to ensure (create keystores if missing)")
+    p_fa.add_argument("--mnemonic", help="BIP-39 mnemonic (used when ensuring missing paths)")
+    p_fa.add_argument("--mnemonic-env", help="Env var name for mnemonic (used when ensuring missing paths)")
+    p_fa.add_argument("--keystore-pass", dest="keystore_pass", help="Keystore password (used when ensuring missing paths)")
+    p_fa.add_argument("--keystore-pass-env", dest="keystore_pass_env", help="Env var for password (used when ensuring missing paths)")
+    p_fa.add_argument("--always", action="store_true", help="Always send exactly the specified amount(s) (not top-up)")
+    p_fa.add_argument("--env-file", help="Path to .env file to load before resolving env and RPC")
+    p_fa.add_argument("--rpc-url", help="Override RPC URL (defaults to RPC_URL or GNOSIS_RPC_URL)")
+    p_fa.add_argument("--chain-id", type=int, default=100, help="Expected chainId (default 100 for Gnosis)")
+    # Gas configs (separate for xDAI and sDAI)
+    p_fa.add_argument("--xdai-gas-limit", type=int, default=21000)
+    p_fa.add_argument("--xdai-legacy", action="store_true")
+    p_fa.add_argument("--xdai-gas-price-gwei", type=float, default=1.0)
+    p_fa.add_argument("--xdai-max-fee-gwei", type=float, default=2.0)
+    p_fa.add_argument("--xdai-priority-fee-gwei", type=float, default=1.0)
+    p_fa.add_argument("--sdai-gas-limit", type=int, default=90000)
+    p_fa.add_argument("--sdai-legacy", action="store_true")
+    p_fa.add_argument("--sdai-gas-price-gwei", type=float, default=1.0)
+    p_fa.add_argument("--sdai-max-fee-gwei", type=float, default=2.0)
+    p_fa.add_argument("--sdai-priority-fee-gwei", type=float, default=1.0)
+    p_fa.add_argument("--timeout", type=int, default=120, help="Wait timeout (seconds) for each receipt (default 120)")
+    p_fa.add_argument("--dry-run", action="store_true", help="Do not send transactions; write plan JSON only")
+    p_fa.add_argument("--confirm", action="store_true", help="Confirm execution; without this flag, plans are written and no txs are sent")
+    def _cmd_fund_all(args: argparse.Namespace) -> int:
+        try:
+            from decimal import Decimal
+
+            if not args.xdai and not args.sdai:
+                print("Provide at least one of --xdai or --sdai", file=sys.stderr)
+                return 2
+
+            out_dir = Path(args.out or "build/wallets")
+            index_path = Path(args.index) if args.index else (out_dir / "index.json")
+
+            # Gas configs
+            xdai_gas = (_GasConfig(type="legacy", gas_limit=int(args.xdai_gas_limit), gas_price_gwei=Decimal(str(args.xdai_gas_price_gwei)))
+                        if args.xdai_legacy else
+                        _GasConfig(type="eip1559", gas_limit=int(args.xdai_gas_limit), max_fee_gwei=Decimal(str(args.xdai_max_fee_gwei)), prio_fee_gwei=Decimal(str(args.xdai_priority_fee_gwei))))
+
+            sdai_gas = (_GasConfig20(type="legacy", gas_limit=int(args.sdai_gas_limit), gas_price_gwei=Decimal(str(args.sdai_gas_price_gwei)))
+                        if args.sdai_legacy else
+                        _GasConfig20(type="eip1559", gas_limit=int(args.sdai_gas_limit), max_fee_gwei=Decimal(str(args.sdai_max_fee_gwei)), prio_fee_gwei=Decimal(str(args.sdai_priority_fee_gwei))))
+
+            # Execute requested legs
+            overall_rc = 0
+            if args.xdai:
+                rc_x = _fund_xdai(
+                    out_dir=out_dir,
+                    index_path=index_path,
+                    amount_eth=str(args.xdai),
+                    from_env=args.from_env,
+                    env_file=args.env_file,
+                    rpc_url=args.rpc_url,
+                    chain_id=int(args.chain_id),
+                    only=args.only,
+                    only_path=args.only_path,
+                    ensure_paths=args.ensure_path,
+                    ensure_mnemonic=args.mnemonic,
+                    ensure_mnemonic_env=args.mnemonic_env,
+                    keystore_pass=args.keystore_pass,
+                    keystore_pass_env=args.keystore_pass_env,
+                    always_send=bool(args.always),
+                    gas=xdai_gas,
+                    timeout=int(args.timeout),
+                    dry_run=bool(args.dry_run),
+                    log_path=None,
+                    require_confirm=not bool(args.confirm),
+                )
+                overall_rc = max(overall_rc, int(rc_x))
+
+            if args.sdai:
+                token = args.token or os.getenv("SDAI_TOKEN_ADDRESS")
+                rc_s = _fund_erc20(
+                    token=token,
+                    out_dir=out_dir,
+                    index_path=index_path,
+                    amount_token=str(args.sdai),
+                    from_env=args.from_env,
+                    env_file=args.env_file,
+                    rpc_url=args.rpc_url,
+                    chain_id=int(args.chain_id),
+                    only=args.only,
+                    only_path=args.only_path,
+                    ensure_paths=args.ensure_path,
+                    ensure_mnemonic=args.mnemonic,
+                    ensure_mnemonic_env=args.mnemonic_env,
+                    keystore_pass=args.keystore_pass,
+                    keystore_pass_env=args.keystore_pass_env,
+                    always_send=bool(args.always),
+                    gas=sdai_gas,
+                    timeout=int(args.timeout),
+                    dry_run=bool(args.dry_run),
+                    log_path=None,
+                    require_confirm=not bool(args.confirm),
+                )
+                overall_rc = max(overall_rc, int(rc_s))
+
+            return int(overall_rc)
+        except Exception as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+    p_fa.set_defaults(func=_cmd_fund_all)
 
     return parser
 
