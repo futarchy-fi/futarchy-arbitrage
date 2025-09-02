@@ -37,8 +37,8 @@
 - `python -m src.setup.cli generate --count 10 [--prefix teamA] [--keystore-pass <pass>|--keystore-pass-env WALLET_KEYSTORE_PASSWORD] [--emit-env] [--force]`
 - `python -m src.setup.cli list [--keystore-dir build/wallets]`
 - `python -m src.setup.cli fund-xdai --amount 0.01 --from-env FUNDER_PRIVATE_KEY [--rpc-url ...] [--max-fee-gwei 2] [--dry-run] [--only <csv|glob>] [--only-path <glob>] [--ensure-path <csv>] [--mnemonic|--mnemonic-env] [--keystore-pass|--keystore-pass-env] [--always]`
-- `python -m src.setup.cli fund-sdai --amount 5.0 --token $SDAI_ADDR --from-env FUNDER_PRIVATE_KEY [--dry-run] [--only <csv|glob>]`
-- `python -m src.setup.cli fund-all --xdai 0.01 --sdai 5.0 --token $SDAI_ADDR --from-env FUNDER_PRIVATE_KEY [--dry-run]`
+- `python -m src.setup.cli fund-sdai --amount 5.0 [--token $SDAI_ADDR] --from-env FUNDER_PRIVATE_KEY [--rpc-url ...] [--dry-run] [--only <csv|glob>] [--only-path <glob>] [--ensure-path <csv>] [--mnemonic|--mnemonic-env] [--keystore-pass|--keystore-pass-env] [--always]`
+- `python -m src.setup.cli fund-all --xdai 0.01 --sdai 5.0 [--token $SDAI_ADDR] --from-env FUNDER_PRIVATE_KEY [--rpc-url ...] [--dry-run] [--only <csv|glob>] [--only-path <glob>] [--ensure-path <csv>] [--mnemonic|--mnemonic-env] [--keystore-pass|--keystore-pass-env] [--always]`
 
 Common flags: `--rpc-url`, `--chain-id`, `--keystore-dir`, `--index`, `--batch-size`, `--timeout`, `--confirm`.
 
@@ -74,9 +74,9 @@ Common flags: `--rpc-url`, `--chain-id`, `--keystore-dir`, `--index`, `--batch-s
 
 - [x] 01 Keystore: helpers + progressive CLI (see subtask-1-keystore ✅.md).
 - [x] 02 Wallet Manager: gen/import/index + CLI (see subtask-2-wallet-manager ✅.md).
-- [x] 03 Fund xDAI: native token funding + CLI (see subtask-3-fund-xdai.md).
-- [ ] 04 Fund ERC20: sDAI funding + CLI (see subtask-4-fund-erc20.md).
-- [ ] Integrations: validations, summaries, JSON logging.
+- [x] 03 Fund xDAI: native token funding + CLI (see subtask-3-fund-xdai ✅.md).
+- [x] 04 Fund ERC20: sDAI funding + CLI (see subtask-4-fund-erc20.md).
+- [x] Integrations: validations, summaries, JSON logging; unified `fund-all` CLI.
 - [ ] Docs: usage examples, cautions, and config notes.
 
 ## Current Status (Subtask 1)
