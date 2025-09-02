@@ -442,6 +442,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_fx.add_argument("--index", help="Index file (default <out>/index.json)")
     p_fx.add_argument("--only", help="Filter recipients: CSV of addresses or glob pattern against addresses (e.g., '0xAbc*')")
     p_fx.add_argument("--only-path", dest="only_path", help="Filter by HD derivation path or glob (matches index records' path)")
+    # Ensure/create HD paths then fund
+    p_fx.add_argument("--ensure-path", dest="ensure_path", help="CSV of HD derivation paths to ensure (create keystores if missing) and fund")
+    p_fx.add_argument("--mnemonic", help="BIP-39 mnemonic (used when ensuring missing paths)")
+    p_fx.add_argument("--mnemonic-env", help="Env var name for mnemonic (used when ensuring missing paths)")
+    p_fx.add_argument("--keystore-pass", dest="keystore_pass", help="Keystore password (used when ensuring missing paths)")
+    p_fx.add_argument("--keystore-pass-env", dest="keystore_pass_env", help="Env var for password (used when ensuring missing paths)")
+    p_fx.add_argument("--always", action="store_true", help="Always send exactly --amount to each target (not top-up)")
     p_fx.add_argument("--env-file", help="Path to .env file to load before resolving env and RPC")
     p_fx.add_argument("--rpc-url", help="Override RPC URL (defaults to RPC_URL or GNOSIS_RPC_URL)")
     p_fx.add_argument("--chain-id", type=int, default=100, help="Expected chainId (default 100 for Gnosis)")
@@ -475,7 +482,7 @@ def build_parser() -> argparse.ArgumentParser:
             log_path = Path(args.log) if args.log else None
             rc = _fund_xdai(
                 out_dir=out_dir,
-                index_path=index_path if index_path.exists() else None,
+                index_path=index_path,
                 amount_eth=str(args.amount),
                 from_env=args.from_env,
                 env_file=args.env_file,
@@ -483,6 +490,12 @@ def build_parser() -> argparse.ArgumentParser:
                 chain_id=int(args.chain_id),
                 only=args.only,
                 only_path=args.only_path,
+                ensure_paths=args.ensure_path,
+                ensure_mnemonic=args.mnemonic,
+                ensure_mnemonic_env=args.mnemonic_env,
+                keystore_pass=args.keystore_pass,
+                keystore_pass_env=args.keystore_pass_env,
+                always_send=bool(args.always),
                 gas=gas,
                 timeout=int(args.timeout),
                 dry_run=bool(args.dry_run),
