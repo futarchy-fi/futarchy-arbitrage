@@ -16,7 +16,8 @@ from eth_utils import to_checksum_address
 from web3 import Web3
 from web3.types import TxParams
 
-from .wallet_manager import load_index, scan_keystores
+from .wallet_manager import load_index, scan_keystores, save_index, upsert_record, record_for
+from .keystore import encrypt_private_key, write_keystore, derive_privkey_from_mnemonic, resolve_password
 
 
 def _utc_now_iso() -> str:
@@ -195,6 +196,12 @@ def fund_xdai(
     chain_id: int = 100,
     only: Optional[str] = None,
     only_path: Optional[str] = None,
+    ensure_paths: Optional[str] = None,
+    ensure_mnemonic: Optional[str] = None,
+    ensure_mnemonic_env: Optional[str] = None,
+    keystore_pass: Optional[str] = None,
+    keystore_pass_env: Optional[str] = None,
+    always_send: bool = False,
     gas: Optional[GasConfig] = None,
     timeout: int = 120,
     dry_run: bool = False,
@@ -235,10 +242,43 @@ def fund_xdai(
     if gas.type == "eip1559" and not _is_eip1559_supported(w3):
         raise SystemExit("RPC appears to not support EIP-1559 (no baseFeePerGas). Use --legacy or different RPC.")
 
+    # Optionally ensure specific HD paths exist and are indexed
+    ensured_records: List[Dict[str, Any]] = []
+    if ensure_paths:
+        if index_path is None:
+            index_path = out_dir / "index.json"
+        existing = load_index(index_path)
+        # Map existing by path
+        existing_by_path = {r.get("path"): r for r in existing if r.get("path")}
+        paths = [p.strip() for p in str(ensure_paths).split(",") if p.strip()]
+        # Determine which are missing
+        missing = [p for p in paths if p not in existing_by_path]
+        if missing:
+            mnemonic = ensure_mnemonic or (os.getenv(ensure_mnemonic_env) if ensure_mnemonic_env else None) or os.getenv("MNEMONIC")
+            if not mnemonic:
+                raise SystemExit("--ensure-path requires --mnemonic/--mnemonic-env or MNEMONIC in env when creating missing paths")
+            password = resolve_password(keystore_pass, keystore_pass_env, "PRIVATE_KEY")
+        updated = existing
+        for path in paths:
+            rec = existing_by_path.get(path)
+            if rec is None:
+                priv_hex, address = derive_privkey_from_mnemonic(mnemonic, path)  # type: ignore[arg-type]
+                ks, _ = encrypt_private_key(priv_hex, password)  # type: ignore[arg-type]
+                ks_path = write_keystore(out_dir, address, ks)
+                rec = record_for(address, ks_path, source="hd", derivation_path=path, tags=None)
+                updated = upsert_record(updated, rec)
+            ensured_records.append(rec)
+        if updated is not existing:
+            save_index(index_path, updated)
+
     # Load recipients
     records = _load_recipients(out_dir, index_path)
     # Apply path filter first (only available when using index records)
     records = _filter_records_by_path(records, only_path)
+    if ensure_paths and not only and not only_path:
+        # Narrow to ensured paths only when no explicit filters provided
+        ensured_set = {to_checksum_address(r.get("address")) for r in ensured_records}
+        records = [r for r in records if to_checksum_address(r.get("address")) in ensured_set]
     if not records:
         print("No wallets found (index missing and keystore dir empty) or no matches for --only-path")
         return 1
@@ -257,7 +297,7 @@ def fund_xdai(
     for addr in recipients:
         bal = int(w3.eth.get_balance(addr))
         before_bal[addr] = bal
-        delta = max(0, target_wei - bal)
+        delta = target_wei if always_send else max(0, target_wei - bal)
         if delta > 0:
             deltas[addr] = delta
             needs.append(addr)
@@ -274,6 +314,7 @@ def fund_xdai(
         "rpc_url": rpc_url or os.getenv("RPC_URL") or os.getenv("GNOSIS_RPC_URL"),
         "funder": funder,
         "target_per_wallet_wei": target_wei,
+        "always": bool(always_send),
         "tx_count": tx_count,
         "total_value_wei": total_value,
         "gas_budget_wei": gas_budget,
