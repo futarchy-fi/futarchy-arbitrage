@@ -72,8 +72,8 @@ Common flags: `--rpc-url`, `--chain-id`, `--keystore-dir`, `--index`, `--batch-s
 ## Implementation Plan
 
 - [x] 01 Keystore: helpers + progressive CLI (see subtask-1-keystore ✅.md).
-- [ ] 02 Wallet Manager: gen/import/index + CLI (see subtask-2-wallet-manager.md).
-- [ ] 03 Fund xDAI: native token funding + CLI (see subtask-3-fund-xdai.md).
+- [x] 02 Wallet Manager: gen/import/index + CLI (see subtask-2-wallet-manager ✅.md).
+- [x] 03 Fund xDAI: native token funding + CLI (see subtask-3-fund-xdai.md).
 - [ ] 04 Fund ERC20: sDAI funding + CLI (see subtask-4-fund-erc20.md).
 - [ ] Integrations: validations, summaries, JSON logging.
 - [ ] Docs: usage examples, cautions, and config notes.
@@ -95,7 +95,7 @@ Common flags: `--rpc-url`, `--chain-id`, `--keystore-dir`, `--index`, `--batch-s
 ## Subtasks
 
 1) Keystore – `.claude/tasks/wallet-setup-and-funding ◐/subtask-1-keystore ✅.md`
-2) Wallet Manager – `.claude/tasks/wallet-setup-and-funding ◐/subtask-2-wallet-manager ◐.md`
+2) Wallet Manager – `.claude/tasks/wallet-setup-and-funding ◐/subtask-2-wallet-manager ✅.md`
 3) Fund xDAI – `.claude/tasks/wallet-setup-and-funding ◐/subtask-3-fund-xdai.md`
 4) Fund ERC20 – `.claude/tasks/wallet-setup-and-funding ◐/subtask-4-fund-erc20.md`
 
