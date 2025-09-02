@@ -53,6 +53,7 @@ from .wallet_manager import (
     import_private_keys,
     upsert_record,
 )
+from .fund_xdai import fund_xdai as _fund_xdai, GasConfig as _GasConfig
 
 
 def cmd_keystore_create(args: argparse.Namespace) -> int:
@@ -432,6 +433,67 @@ def build_parser() -> argparse.ArgumentParser:
             print(f"Error: {e}", file=sys.stderr)
             return 1
     p_imp.set_defaults(func=_cmd_import)
+
+    # fund-xdai: top up native xDAI to a target balance for each wallet in index/keystore dir
+    p_fx = sub.add_parser("fund-xdai", help="Top up wallets to a target xDAI balance")
+    p_fx.add_argument("--amount", required=True, help="Target xDAI balance per wallet (e.g., 0.01)")
+    p_fx.add_argument("--from-env", dest="from_env", default="FUNDER_PRIVATE_KEY", help="Env var holding funder PRIVATE_KEY (default FUNDER_PRIVATE_KEY; fallback PRIVATE_KEY)")
+    p_fx.add_argument("--out", help="Keystore directory (default build/wallets)")
+    p_fx.add_argument("--index", help="Index file (default <out>/index.json)")
+    p_fx.add_argument("--only", help="Filter recipients: CSV of addresses or glob pattern against addresses (e.g., '0xAbc*')")
+    p_fx.add_argument("--only-path", dest="only_path", help="Filter by HD derivation path or glob (matches index records' path)")
+    p_fx.add_argument("--env-file", help="Path to .env file to load before resolving env and RPC")
+    p_fx.add_argument("--rpc-url", help="Override RPC URL (defaults to RPC_URL or GNOSIS_RPC_URL)")
+    p_fx.add_argument("--chain-id", type=int, default=100, help="Expected chainId (default 100 for Gnosis)")
+    p_fx.add_argument("--gas-limit", type=int, default=21000, help="Gas limit per transfer (default 21000)")
+    # Gas price strategy
+    gas_mode = p_fx.add_mutually_exclusive_group()
+    gas_mode.add_argument("--legacy", action="store_true", help="Use legacy gasPrice instead of EIP-1559")
+    p_fx.add_argument("--gas-price-gwei", type=float, default=1.0, help="Legacy gasPrice in gwei (used when --legacy)")
+    p_fx.add_argument("--max-fee-gwei", type=float, default=2.0, help="EIP-1559 maxFeePerGas in gwei (default 2)")
+    p_fx.add_argument("--priority-fee-gwei", type=float, default=1.0, help="EIP-1559 maxPriorityFeePerGas in gwei (default 1)")
+    p_fx.add_argument("--timeout", type=int, default=120, help="Wait timeout (seconds) for each receipt (default 120)")
+    p_fx.add_argument("--dry-run", action="store_true", help="Do not send transactions; write plan JSON only")
+    p_fx.add_argument("--confirm", action="store_true", help="Confirm execution; without this flag, a plan is written and no txs are sent")
+    p_fx.add_argument("--log", help="Path to write JSON log (default build/wallets/funding_<timestamp>.json)")
+    def _cmd_fund_xdai(args: argparse.Namespace) -> int:
+        try:
+            from decimal import Decimal
+
+            out_dir = Path(args.out or "build/wallets")
+            index_path = Path(args.index) if args.index else (out_dir / "index.json")
+            # Gas config
+            if args.legacy:
+                gas = _GasConfig(type="legacy", gas_limit=int(args.gas_limit), gas_price_gwei=Decimal(str(args.gas_price_gwei)))
+            else:
+                gas = _GasConfig(
+                    type="eip1559",
+                    gas_limit=int(args.gas_limit),
+                    max_fee_gwei=Decimal(str(args.max_fee_gwei)),
+                    prio_fee_gwei=Decimal(str(args.priority_fee_gwei)),
+                )
+            log_path = Path(args.log) if args.log else None
+            rc = _fund_xdai(
+                out_dir=out_dir,
+                index_path=index_path if index_path.exists() else None,
+                amount_eth=str(args.amount),
+                from_env=args.from_env,
+                env_file=args.env_file,
+                rpc_url=args.rpc_url,
+                chain_id=int(args.chain_id),
+                only=args.only,
+                only_path=args.only_path,
+                gas=gas,
+                timeout=int(args.timeout),
+                dry_run=bool(args.dry_run),
+                log_path=log_path,
+                require_confirm=not bool(args.confirm),
+            )
+            return int(rc)
+        except Exception as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+    p_fx.set_defaults(func=_cmd_fund_xdai)
 
     return parser
 
