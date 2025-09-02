@@ -36,7 +36,7 @@
 
 - `python -m src.setup.cli generate --count 10 [--prefix teamA] [--keystore-pass <pass>|--keystore-pass-env WALLET_KEYSTORE_PASSWORD] [--emit-env] [--force]`
 - `python -m src.setup.cli list [--keystore-dir build/wallets]`
-- `python -m src.setup.cli fund-xdai --amount 0.01 --from-env FUNDER_PRIVATE_KEY [--rpc-url ...] [--max-fee-gwei 2] [--dry-run] [--only <csv|glob>]`
+- `python -m src.setup.cli fund-xdai --amount 0.01 --from-env FUNDER_PRIVATE_KEY [--rpc-url ...] [--max-fee-gwei 2] [--dry-run] [--only <csv|glob>] [--only-path <glob>] [--ensure-path <csv>] [--mnemonic|--mnemonic-env] [--keystore-pass|--keystore-pass-env] [--always]`
 - `python -m src.setup.cli fund-sdai --amount 5.0 --token $SDAI_ADDR --from-env FUNDER_PRIVATE_KEY [--dry-run] [--only <csv|glob>]`
 - `python -m src.setup.cli fund-all --xdai 0.01 --sdai 5.0 --token $SDAI_ADDR --from-env FUNDER_PRIVATE_KEY [--dry-run]`
 
@@ -50,7 +50,7 @@ Common flags: `--rpc-url`, `--chain-id`, `--keystore-dir`, `--index`, `--batch-s
    - Funder’s xDAI and sDAI balances sufficient for requested totals + gas.
 3. For each recipient:
    - Query current balances.
-   - Compute top-up amounts to reach targets (skip if already ≥ target).
+   - Compute transfer amount: top-up to target (default) or send exact `--amount` with `--always`.
    - Build and send transactions with sequential nonce management per funder.
    - Await receipts with timeout and basic retry/backoff.
 4. Emit per-recipient results (before → after, deltas, tx hashes) and aggregate summary.
@@ -65,9 +65,10 @@ Common flags: `--rpc-url`, `--chain-id`, `--keystore-dir`, `--index`, `--batch-s
 
 ## Validation & Reporting
 
+- Early fast‑fail: RPC connectivity, expected `chainId`, EIP‑1559 support (unless legacy), gas limit sanity (>=21000).
 - Validate ERC20 decimals (fallback 18 if call fails); amount normalization.
-- Pre/post balance checks for recipients; skip idempotently when funded.
-- Write JSON log to `build/wallets/funding_<timestamp>.json` with inputs, outcomes, failures.
+- Pre/post balance checks for recipients; skip idempotently when funded (unless `--always`).
+- Write JSON log to `build/wallets/funding_<timestamp>.json` with inputs, outcomes, failures (includes `always` flag).
 
 ## Implementation Plan
 
