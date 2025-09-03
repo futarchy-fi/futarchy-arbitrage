@@ -55,6 +55,8 @@ from .wallet_manager import (
 )
 from .fund_xdai import fund_xdai as _fund_xdai, GasConfig as _GasConfig
 from .fund_erc20 import fund_erc20 as _fund_erc20, GasConfig as _GasConfig20
+from .deploy_v5 import deploy_v5 as _deploy_v5
+from .deploy_v5 import DeployGasConfig as _DeployGasConfig
 
 
 def cmd_keystore_create(args: argparse.Namespace) -> int:
@@ -698,6 +700,84 @@ def build_parser() -> argparse.ArgumentParser:
             print(f"Error: {e}", file=sys.stderr)
             return 1
     p_fa.set_defaults(func=_cmd_fund_all)
+
+    # deploy-v5: deploy FutarchyArbExecutorV5 from an HD path owner
+    p_dv5 = sub.add_parser("deploy-v5", help="Deploy FutarchyArbExecutorV5 with owner set to the HD path EOA")
+    p_dv5.add_argument("--path", required=True, help="HD derivation path for the deployer EOA (e.g., m/44'/60'/0'/0/5)")
+    p_dv5.add_argument("--ensure-path", action="store_true", help="Ensure the HD path exists (create keystore+index if missing)")
+    p_dv5.add_argument("--mnemonic", help="BIP-39 mnemonic (used to derive/decrypt when ensuring or deriving privkey)")
+    p_dv5.add_argument("--mnemonic-env", help="Env var name for mnemonic (used when ensuring/deriving)")
+    p_dv5.add_argument("--keystore-pass", dest="keystore_pass", help="Keystore password (used when ensuring missing paths or decrypting keystore)")
+    p_dv5.add_argument("--keystore-pass-env", dest="keystore_pass_env", help="Env var for keystore password (used when ensuring/decrypting)")
+    p_dv5.add_argument("--out", help="Keystore directory (default build/wallets)")
+    p_dv5.add_argument("--index", help="Index file (default <out>/index.json)")
+    p_dv5.add_argument("--env-file", help="Path to .env file to load before resolving env and RPC")
+    p_dv5.add_argument("--rpc-url", help="Override RPC URL (defaults to RPC_URL or GNOSIS_RPC_URL)")
+    p_dv5.add_argument("--chain-id", type=int, default=100, help="Expected chainId (default 100 for Gnosis)")
+    # Gas settings
+    gas_mode = p_dv5.add_mutually_exclusive_group()
+    gas_mode.add_argument("--legacy", action="store_true", help="Use legacy gasPrice instead of EIP-1559")
+    p_dv5.add_argument("--gas-limit", type=int, default=3_000_000, help="Gas limit for deployment (default 3,000,000)")
+    p_dv5.add_argument("--gas-price-gwei", type=float, default=1.0, help="Legacy gasPrice in gwei (used when --legacy)")
+    p_dv5.add_argument("--max-fee-gwei", type=float, default=2.0, help="EIP-1559 maxFeePerGas in gwei (default 2)")
+    p_dv5.add_argument("--priority-fee-gwei", type=float, default=1.0, help="EIP-1559 maxPriorityFeePerGas in gwei (default 1)")
+    p_dv5.add_argument("--timeout", type=int, default=300, help="Wait timeout (seconds) for the deployment receipt (default 300)")
+    # Optional pre-fund for deployer
+    p_dv5.add_argument("--fund-xdai", dest="fund_xdai", help="Top-up deployer xDAI to at least this amount before deploy (idempotent)")
+    p_dv5.add_argument("--funder-env", dest="funder_env", default="FUNDER_PRIVATE_KEY", help="Env var holding funder PRIVATE_KEY (default FUNDER_PRIVATE_KEY; fallback PRIVATE_KEY)")
+    # Exec controls
+    p_dv5.add_argument("--dry-run", action="store_true", help="Do not send transactions; write plan JSON only")
+    p_dv5.add_argument("--confirm", action="store_true", help="Confirm execution; without this flag, a plan is written and no txs are sent")
+    p_dv5.add_argument("--log", help="Path to write JSON log (default build/wallets/deploy_v5_<timestamp>.json)")
+    def _cmd_deploy_v5(args: argparse.Namespace) -> int:
+        try:
+            from decimal import Decimal
+
+            out_dir = Path(args.out or "build/wallets")
+            index_path = Path(args.index) if args.index else (out_dir / "index.json")
+
+            # Gas config
+            if args.legacy:
+                gas = _DeployGasConfig(
+                    type="legacy",
+                    gas_limit=int(args.gas_limit),
+                    gas_price_gwei=Decimal(str(args.gas_price_gwei)),
+                )
+            else:
+                gas = _DeployGasConfig(
+                    type="eip1559",
+                    gas_limit=int(args.gas_limit),
+                    max_fee_gwei=Decimal(str(args.max_fee_gwei)),
+                    prio_fee_gwei=Decimal(str(args.priority_fee_gwei)),
+                )
+
+            log_path = Path(args.log) if args.log else None
+
+            rc = _deploy_v5(
+                path=args.path,
+                out_dir=out_dir,
+                index_path=index_path,
+                ensure_path=bool(args.ensure_path),
+                ensure_mnemonic=args.mnemonic,
+                ensure_mnemonic_env=args.mnemonic_env,
+                keystore_pass=args.keystore_pass,
+                keystore_pass_env=args.keystore_pass_env,
+                env_file=args.env_file,
+                rpc_url=args.rpc_url,
+                chain_id=int(args.chain_id),
+                gas=gas,
+                timeout=int(args.timeout),
+                dry_run=bool(args.dry_run),
+                log_path=log_path,
+                require_confirm=not bool(args.confirm),
+                fund_xdai_eth=(str(args.fund_xdai) if args.fund_xdai else None),
+                funder_env=args.funder_env,
+            )
+            return int(rc)
+        except Exception as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+    p_dv5.set_defaults(func=_cmd_deploy_v5)
 
     return parser
 
