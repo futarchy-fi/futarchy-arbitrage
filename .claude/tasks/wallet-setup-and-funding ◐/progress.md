@@ -77,6 +77,7 @@ Common flags: `--rpc-url`, `--chain-id`, `--keystore-dir`, `--index`, `--batch-s
 - [x] 03 Fund xDAI: native token funding + CLI (see subtask-3-fund-xdai ✅.md).
 - [x] 04 Fund ERC20: sDAI funding + CLI (see subtask-4-fund-erc20.md).
 - [x] Integrations: validations, summaries, JSON logging; unified `fund-all` CLI.
+- [ ] 05 Deploy V5: owner=HD path + CLI (see subtask-5-deploy-v5 ◐.md).
 - [ ] Docs: usage examples, cautions, and config notes.
 
 ## Current Status (Subtask 1)
