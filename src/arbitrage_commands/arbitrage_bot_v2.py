@@ -61,23 +61,31 @@ class ConfigManager:
         else:
             # Try to load from default locations
             self.load_default_config()
+        # Ensure process env overrides take precedence over file configs
+        self._apply_process_env_overrides()
     
     def load_json_config(self, config_path: str) -> None:
         """Load configuration from JSON file."""
         with open(config_path, 'r') as f:
             self.config = json.load(f)
+        # After loading explicit config, apply env overrides (PRIVATE_KEY, FUTARCHY address)
+        self._apply_process_env_overrides()
             
     def load_env_config(self, env_file: str) -> None:
         """Load configuration from .env file and map to JSON structure."""
         # Load base .env if exists
         base_env = Path(".env")
         if base_env.exists():
-            load_dotenv(base_env)
+            # Do not override existing process env
+            load_dotenv(base_env, override=False)
         if env_file:
-            load_dotenv(env_file)
+            # Do not override existing process env
+            load_dotenv(env_file, override=False)
             
         # Map env variables to config structure
         self.config = self._map_env_to_config()
+        # Apply process env overrides (if any)
+        self._apply_process_env_overrides()
     
     def load_default_config(self) -> None:
         """Try to load from default locations."""
@@ -92,8 +100,9 @@ class ConfigManager:
         # Fall back to environment
         base_env = Path(".env")
         if base_env.exists():
-            load_dotenv(base_env)
+            load_dotenv(base_env, override=False)
         self.config = self._map_env_to_config()
+        self._apply_process_env_overrides()
     
     def _map_env_to_config(self) -> Dict[str, Any]:
         """Map environment variables to JSON config structure."""
@@ -163,6 +172,35 @@ class ConfigManager:
                 }
             }
         }
+
+    def _apply_process_env_overrides(self) -> None:
+        """Ensure process-level environment overrides take priority over any file-based config.
+
+        Specifically, prefer:
+        - PRIVATE_KEY over any configured wallet.private_key
+        - FUTARCHY_ARB_EXECUTOR_V5 (or EXECUTOR_V5_ADDRESS) over contracts.executor_v5
+        - PREDICTION_ARB_EXECUTOR_V1 over contracts.executor_prediction_v1
+        """
+        try:
+            # Wallet private key
+            pk = os.getenv("PRIVATE_KEY")
+            if pk:
+                self.config.setdefault("wallet", {})
+                self.config["wallet"]["private_key"] = pk
+
+            # Executor addresses
+            v5 = os.getenv("FUTARCHY_ARB_EXECUTOR_V5") or os.getenv("EXECUTOR_V5_ADDRESS")
+            if v5:
+                self.config.setdefault("contracts", {})
+                self.config["contracts"]["executor_v5"] = v5
+
+            pred = os.getenv("PREDICTION_ARB_EXECUTOR_V1") or os.getenv("PREDICTION_EXECUTOR_V1_ADDRESS")
+            if pred:
+                self.config.setdefault("contracts", {})
+                self.config["contracts"]["executor_prediction_v1"] = pred
+        except Exception:
+            # Non-fatal; best-effort overlay
+            pass
     
     def get(self, path: str, default: Any = None) -> Any:
         """Get a value from config using dot notation path."""
@@ -597,10 +635,63 @@ class ArbitrageBot:
                 "--cheaper", str(cheaper or "swapr"),
                 "--min-profit", str(min_profit)
             ]
+
+        # Increase default gas limit for all executor variants when launched via arbitrage_bot_v2
+        # This overrides the executors' internal defaults without exposing a new CLI here.
+        cmd.extend(["--gas", "4000000"])  # 4,000,000
         
-        # Add env file if specified
-        if self.config.env_file:
-            cmd.extend(["--env", self.config.env_file])
+        # Build a merged .env file for the executor with explicit precedence:
+        #   process env > config-derived env > file .envs.
+        # Then pass that merged file via --env to avoid accidental overrides.
+        merged_env: Dict[str, str] = self.config.to_env_dict()
+        # Overlay with any same-name keys from the current process env
+        for k in list(merged_env.keys()):
+            v = os.environ.get(k)
+            if v is not None:
+                merged_env[k] = v
+        # Ensure critical keys from process env are included even if missing in config
+        critical = [
+            "PRIVATE_KEY",
+            "FUTARCHY_ARB_EXECUTOR_V5",
+            "EXECUTOR_V5_ADDRESS",
+            "PREDICTION_ARB_EXECUTOR_V1",
+            "RPC_URL",
+            "GNOSIS_RPC_URL",
+            "CHAIN_ID",
+            "BALANCER_ROUTER_ADDRESS",
+            "BALANCER_VAULT_ADDRESS",
+            "SWAPR_ROUTER_ADDRESS",
+            "FUTARCHY_ROUTER_ADDRESS",
+            "BALANCER_POOL_ADDRESS",
+            "SWAPR_POOL_YES_ADDRESS",
+            "SWAPR_POOL_NO_ADDRESS",
+            "SWAPR_POOL_PRED_YES_ADDRESS",
+            "SWAPR_POOL_PRED_NO_ADDRESS",
+            "SDAI_TOKEN_ADDRESS",
+            "COMPANY_TOKEN_ADDRESS",
+        ]
+        for k in critical:
+            v = os.environ.get(k)
+            if v is not None and k not in merged_env:
+                merged_env[k] = v
+
+        # Write merged env to a persistent file under build/envs
+        tmp_dir = Path("build/envs")
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        tmp_env_path = tmp_dir / f"exec_env_{int(time.time())}_{os.getpid()}.env"
+        try:
+            with open(tmp_env_path, "w") as f:
+                for k, v in merged_env.items():
+                    if v is None:
+                        continue
+                    f.write(f"{k}={v}\n")
+            print(f"Merged executor env written: {tmp_env_path}")
+        except Exception as e:
+            print(f"✗ Failed to write merged env file: {e}")
+            return False, None
+
+        # Ensure the executor loads exactly the merged env file
+        cmd.extend(["--env", str(tmp_env_path)])
         
         if prefund:
             cmd.append("--prefund")
@@ -616,9 +707,10 @@ class ArbitrageBot:
         print(f"Executor type: {bot_type}")
         print(f"Command: {' '.join(cmd)}")
         
-        # Create environment with all necessary variables
-        env = os.environ.copy()
-        env.update(self.config.to_env_dict())
+        # Prepare child env: start from current process env, but remove keys we want the file to define
+        child_env = os.environ.copy()
+        for k in merged_env.keys():
+            child_env.pop(k, None)
         
         try:
             result = subprocess.run(
@@ -626,7 +718,7 @@ class ArbitrageBot:
                 capture_output=True,
                 text=True,
                 timeout=120,  # 2 minute timeout
-                env=env
+                env=child_env
             )
             
             # Parse transaction hash from output
@@ -653,13 +745,14 @@ class ArbitrageBot:
                                 print(f"   Error: {line.strip()}")
                                 break
                 return False, None
-                
+        
         except subprocess.TimeoutExpired:
             print("✗ Trade execution timed out")
             return False, None
         except Exception as e:
             print(f"✗ Error executing trade: {e}")
             return False, None
+        # Note: We intentionally persist the merged env file under build/envs for debugging/reuse.
             
     def run_loop(self, dry_run: bool = False, prefund: bool = False) -> None:
         """Main monitoring loop."""
@@ -820,7 +913,11 @@ def main():
     parser = argparse.ArgumentParser(
         description="Futarchy arbitrage bot with JSON configuration support"
     )
-    
+    # Debug/inspection: write merged config to JSON for external control
+    parser.add_argument(
+        "--dump-config",
+        help="Write the merged config (after env and CLI overrides) to a JSON file and exit (use '-' for stdout)"
+    )
     # Configuration source (mutually exclusive)
     config_group = parser.add_mutually_exclusive_group()
     config_group.add_argument(
@@ -925,6 +1022,18 @@ def main():
                 else:
                     parser.error("bot.run_options.tolerance not found in config and --tolerance not provided")
         
+        # If requested, dump merged config and exit
+        if args.dump_config:
+            payload = config.config
+            if args.dump_config == "-":
+                print(json.dumps(payload, indent=2))
+                return
+            outp = Path(args.dump_config)
+            outp.parent.mkdir(parents=True, exist_ok=True)
+            outp.write_text(json.dumps(payload, indent=2) + "\n")
+            print(f"Wrote merged config to {outp}")
+            return
+
         # Create and run bot
         bot = ArbitrageBot(config)
         bot.run_loop(dry_run=args.dry_run, prefund=args.prefund)

@@ -507,6 +507,9 @@ def deploy_v5(
         "abi": abi,
         "network": "gnosis",
         "contract": "FutarchyArbExecutorV5",
+        # Linkage to HD derivation for easy lookup
+        "path": path,
+        "deployer": deployer,
     }
     with open(dep_file, "w") as f:
         json.dump(dep_payload, f, indent=2)

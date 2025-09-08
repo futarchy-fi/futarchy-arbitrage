@@ -57,6 +57,7 @@ from .fund_xdai import fund_xdai as _fund_xdai, GasConfig as _GasConfig
 from .fund_erc20 import fund_erc20 as _fund_erc20, GasConfig as _GasConfig20
 from .deploy_v5 import deploy_v5 as _deploy_v5
 from .deploy_v5 import DeployGasConfig as _DeployGasConfig
+from .deployment_links import find_by_path as _find_deploy_link_by_path
 
 
 def cmd_keystore_create(args: argparse.Namespace) -> int:
@@ -226,6 +227,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_new.add_argument("--out", help="Output directory for keystore files (default build/wallets)")
     p_new.add_argument("--print-secrets", action="store_true", help="Print the generated mnemonic and password to stdout")
     p_new.add_argument("--keystore-pass", dest="keystore_pass", help="Override with a provided keystore password (avoid printing)")
+    p_new.add_argument("--write-seed-env", action="store_true", help="Write MNEMONIC and WALLET_KEYSTORE_PASSWORD to an env file")
+    p_new.add_argument("--seed-env-file", help="Target env file path (default .env.seed)")
+    p_new.add_argument("--overwrite-seed-env", action="store_true", help="Overwrite seed env file if it already exists")
     def _cmd_hd_new(args: argparse.Namespace) -> int:
         try:
             # Enable HD features and generate mnemonic
@@ -255,6 +259,22 @@ def build_parser() -> argparse.ArgumentParser:
                 print("\nSECRETS (Handle carefully; not stored anywhere):")
                 print(f"Mnemonic: {mnemonic}")
                 print(f"Keystore password: {password}")
+
+            # Optionally write seed env for future runs
+            if args.write_seed_env:
+                try:
+                    target = Path(args.seed_env_file or ".env.seed")
+                    if target.exists() and not args.overwrite_seed_env:
+                        print(f"Seed env file already exists at {target}; skipping write (use --overwrite-seed-env to replace)")
+                    else:
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        with open(target, "w") as f:
+                            f.write(f"MNEMONIC='{mnemonic}'\n")
+                            f.write(f"WALLET_KEYSTORE_PASSWORD={password}\n")
+                            f.write(f"HD_PATH_BASE=\"{args.path_base}\"\n")
+                        print(f"Wrote seed env to {target}")
+                except Exception as e:
+                    print(f"Warning: failed to write seed env: {e}", file=sys.stderr)
 
             return 0
         except Exception as e:
@@ -329,14 +349,23 @@ def build_parser() -> argparse.ArgumentParser:
     p_gen.add_argument("--emit-env", action="store_true", help="Also write plaintext .env.<address> (insecure)")
     p_gen.add_argument("--insecure-plain", action="store_true", help="Acknowledge insecurity when writing plaintext env files")
     p_gen.add_argument("--env-file", help="Path to .env file for resolving env vars (mnemonic/password)")
+    # Password generation and persistence
+    p_gen.add_argument("--generate-password", action="store_true", help="Generate a random WALLET_KEYSTORE_PASSWORD for this run (overrides --keystore-pass/env)")
+    p_gen.add_argument("--write-password", action="store_true", help="Write WALLET_KEYSTORE_PASSWORD to env file at end")
+    p_gen.add_argument("--password-file", help="Target env file path (default: --env-file or .env)")
+    p_gen.add_argument("--overwrite-password", action="store_true", help="Overwrite WALLET_KEYSTORE_PASSWORD if it already exists in the target env file")
     def _cmd_generate(args: argparse.Namespace) -> int:
         try:
             if args.env_file:
                 load_dotenv(args.env_file)
             out_dir = Path(args.out or "build/wallets")
             index_path = Path(args.index or (out_dir / "index.json"))
-            # Resolve password (fallback to PRIVATE_KEY-derived if no WALLET_KEYSTORE_PASSWORD)
-            password = resolve_password(args.keystore_pass, args.keystore_pass_env, "PRIVATE_KEY")
+            # Resolve or generate password
+            if args.generate_password:
+                password = secrets.token_urlsafe(32)
+            else:
+                # Fallback to PRIVATE_KEY-derived if no WALLET_KEYSTORE_PASSWORD
+                password = resolve_password(args.keystore_pass, args.keystore_pass_env, "PRIVATE_KEY")
             # Create records
             if args.mode == "hd":
                 # Resolve mnemonic from CLI or env (.env provides MNEMONIC)
@@ -359,6 +388,23 @@ def build_parser() -> argparse.ArgumentParser:
             print(f"Generated {len(new_records)} wallet(s). Index: {index_path}")
             for r in new_records:
                 print(f" - {r['address']} -> {r['keystore_path']}" + (f" @ {r.get('path')}" if r.get('path') else ""))
+
+            # Optionally write the keystore password to an env file
+            if args.write_password:
+                try:
+                    target_env = Path(args.password_file or args.env_file or ".env")
+                    target_env.parent.mkdir(parents=True, exist_ok=True)
+                    existing_text = target_env.read_text() if target_env.exists() else ""
+                    exists = any(line.strip().startswith("WALLET_KEYSTORE_PASSWORD=") for line in existing_text.splitlines())
+                    if exists and not args.overwrite_password:
+                        print(f"WALLET_KEYSTORE_PASSWORD already present in {target_env}; skipping (use --overwrite-password to replace)")
+                    else:
+                        lines = [] if not existing_text else [ln for ln in existing_text.splitlines() if not ln.strip().startswith("WALLET_KEYSTORE_PASSWORD=")]
+                        lines.append(f"WALLET_KEYSTORE_PASSWORD={password}")
+                        target_env.write_text("\n".join(lines) + "\n")
+                        print(f"Wrote WALLET_KEYSTORE_PASSWORD to {target_env}")
+                except Exception as e:
+                    print(f"Warning: failed to write WALLET_KEYSTORE_PASSWORD: {e}", file=sys.stderr)
             return 0
         except Exception as e:
             print(f"Error: {e}", file=sys.stderr)
@@ -778,6 +824,139 @@ def build_parser() -> argparse.ArgumentParser:
             print(f"Error: {e}", file=sys.stderr)
             return 1
     p_dv5.set_defaults(func=_cmd_deploy_v5)
+
+    # deploy-v5-linked: ensure path, pre-fund deployer (xDAI), deploy, and print path→address link
+    p_dv5l = sub.add_parser("deploy-v5-linked", help="Ensure HD path, pre-fund deployer, deploy V5, and print path→address link")
+    p_dv5l.add_argument("--path", required=True, help="HD derivation path for the deployer EOA (e.g., m/44'/60'/0'/0/5)")
+    p_dv5l.add_argument("--ensure-path", action="store_true", help="Ensure the HD path exists (create keystore+index if missing)")
+    p_dv5l.add_argument("--mnemonic", help="BIP-39 mnemonic (used to derive/decrypt when ensuring or deriving privkey)")
+    p_dv5l.add_argument("--mnemonic-env", help="Env var name for mnemonic (used when ensuring/deriving)")
+    p_dv5l.add_argument("--keystore-pass", dest="keystore_pass", help="Keystore password (used when ensuring missing paths or decrypting keystore)")
+    p_dv5l.add_argument("--keystore-pass-env", dest="keystore_pass_env", help="Env var for keystore password (used when ensuring/decrypting)")
+    p_dv5l.add_argument("--out", help="Keystore directory (default build/wallets)")
+    p_dv5l.add_argument("--index", help="Index file (default <out>/index.json)")
+    p_dv5l.add_argument("--env-file", help="Path to .env file to load before resolving env and RPC")
+    p_dv5l.add_argument("--rpc-url", help="Override RPC URL (defaults to RPC_URL or GNOSIS_RPC_URL)")
+    p_dv5l.add_argument("--chain-id", type=int, default=100, help="Expected chainId (default 100 for Gnosis)")
+    # Gas settings
+    gas_mode = p_dv5l.add_mutually_exclusive_group()
+    gas_mode.add_argument("--legacy", action="store_true", help="Use legacy gasPrice instead of EIP-1559")
+    p_dv5l.add_argument("--gas-limit", type=int, default=3_000_000, help="Gas limit for deployment (default 3,000,000)")
+    p_dv5l.add_argument("--gas-price-gwei", type=float, default=1.0, help="Legacy gasPrice in gwei (used when --legacy)")
+    p_dv5l.add_argument("--max-fee-gwei", type=float, default=2.0, help="EIP-1559 maxFeePerGas in gwei (default 2)")
+    p_dv5l.add_argument("--priority-fee-gwei", type=float, default=1.0, help="EIP-1559 maxPriorityFeePerGas in gwei (default 1)")
+    p_dv5l.add_argument("--timeout", type=int, default=300, help="Wait timeout (seconds) for the deployment receipt (default 300)")
+    # Pre-fund (xDAI) and sDAI funding after deploy
+    p_dv5l.add_argument("--fund-xdai", dest="fund_xdai", help="Top-up deployer xDAI to at least this amount before deploy (idempotent)")
+    p_dv5l.add_argument("--funder-env", dest="funder_env", default="FUNDER_PRIVATE_KEY", help="Env var holding funder PRIVATE_KEY (default FUNDER_PRIVATE_KEY; fallback PRIVATE_KEY)")
+    p_dv5l.add_argument("--fund-sdai", dest="fund_sdai", help="After deploy, fund executor with this sDAI amount (optional)")
+    # Exec controls
+    p_dv5l.add_argument("--dry-run", action="store_true", help="Do not send transactions; write plan JSON only")
+    p_dv5l.add_argument("--confirm", action="store_true", help="Confirm execution; without this flag, a plan is written and no txs are sent")
+    p_dv5l.add_argument("--log", help="Path to write JSON log (default build/wallets/deploy_v5_<timestamp>.json)")
+    # Password generation and storage
+    p_dv5l.add_argument("--write-password", action="store_true", help="Generate a random WALLET_KEYSTORE_PASSWORD and append to the env file (or .env if not provided)")
+    p_dv5l.add_argument("--password-file", help="Target env file to write WALLET_KEYSTORE_PASSWORD (default: --env-file or .env)")
+    p_dv5l.add_argument("--overwrite-password", action="store_true", help="Overwrite WALLET_KEYSTORE_PASSWORD if it already exists in the target env file")
+    def _cmd_deploy_v5_linked(args: argparse.Namespace) -> int:
+        try:
+            from decimal import Decimal
+            import subprocess, json as _json
+
+            out_dir = Path(args.out or "build/wallets")
+            index_path = Path(args.index) if args.index else (out_dir / "index.json")
+
+            # Gas config
+            if args.legacy:
+                gas = _DeployGasConfig(
+                    type="legacy",
+                    gas_limit=int(args.gas_limit),
+                    gas_price_gwei=Decimal(str(args.gas_price_gwei)),
+                )
+            else:
+                gas = _DeployGasConfig(
+                    type="eip1559",
+                    gas_limit=int(args.gas_limit),
+                    max_fee_gwei=Decimal(str(args.max_fee_gwei)),
+                    prio_fee_gwei=Decimal(str(args.priority_fee_gwei)),
+                )
+
+            log_path = Path(args.log) if args.log else None
+
+            # Execute deploy with pre-fund option (xDAI). Deploy function itself funds before sending tx.
+            rc = _deploy_v5(
+                path=args.path,
+                out_dir=out_dir,
+                index_path=index_path,
+                ensure_path=bool(args.ensure_path),
+                ensure_mnemonic=args.mnemonic,
+                ensure_mnemonic_env=args.mnemonic_env,
+                keystore_pass=args.keystore_pass,
+                keystore_pass_env=args.keystore_pass_env,
+                env_file=args.env_file,
+                rpc_url=args.rpc_url,
+                chain_id=int(args.chain_id),
+                gas=gas,
+                timeout=int(args.timeout),
+                dry_run=bool(args.dry_run),
+                log_path=log_path,
+                require_confirm=not bool(args.confirm),
+                fund_xdai_eth=(str(args.fund_xdai) if args.fund_xdai else None),
+                funder_env=args.funder_env,
+            )
+            if int(rc) != 0:
+                return int(rc)
+
+            # Resolve deployed address from logs by path
+            link = _find_deploy_link_by_path(args.path)
+            if not link:
+                print("Warning: could not resolve deployed address from logs; ensure logs exist and include address.", file=sys.stderr)
+                return 0
+            print(_json.dumps({"path": link.path, "address": link.address, "deployer": link.deployer, "tx": link.tx}, indent=2))
+
+            # Optionally fund sDAI to the executor contract after deployment
+            if args.fund_sdai:
+                cmd = [
+                    sys.executable, "-m", "src.arbitrage_commands.fund_executor",
+                    "--amount", str(args.fund_sdai),
+                    "--address", link.address,
+                ]
+                if args.env_file:
+                    cmd.extend(["--env", args.env_file])
+                print(f"Funding executor with sDAI: {' '.join(cmd)}")
+                res = subprocess.run(cmd, text=True)
+                if res.returncode != 0:
+                    print("Warning: sDAI fund step failed", file=sys.stderr)
+
+            # Optionally generate and store WALLET_KEYSTORE_PASSWORD
+            if args.write_password:
+                try:
+                    target_env = Path(args.password_file or args.env_file or ".env")
+                    target_env.parent.mkdir(parents=True, exist_ok=True)
+                    content = ""
+                    if target_env.exists():
+                        content = target_env.read_text()
+                    exists = "WALLET_KEYSTORE_PASSWORD" in content
+                    if exists and not args.overwrite_password:
+                        print(f"WALLET_KEYSTORE_PASSWORD already present in {target_env}; skipping (use --overwrite-password to replace)")
+                    else:
+                        # Generate a reasonably strong URL-safe password
+                        pwd = secrets.token_urlsafe(32)
+                        lines = [] if not content else content.splitlines()
+                        # Remove any existing lines for WALLET_KEYSTORE_PASSWORD if overwriting
+                        if exists:
+                            lines = [ln for ln in lines if not ln.strip().startswith("WALLET_KEYSTORE_PASSWORD=")]
+                        lines.append(f"WALLET_KEYSTORE_PASSWORD={pwd}")
+                        target_env.write_text("\n".join(lines) + "\n")
+                        print(f"Wrote WALLET_KEYSTORE_PASSWORD to {target_env}")
+                except Exception as e:
+                    print(f"Warning: failed to write WALLET_KEYSTORE_PASSWORD: {e}", file=sys.stderr)
+
+            return 0
+        except Exception as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+    p_dv5l.set_defaults(func=_cmd_deploy_v5_linked)
 
     return parser
 
