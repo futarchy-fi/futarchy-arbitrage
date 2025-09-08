@@ -18,6 +18,7 @@ Usage examples:
 Environment:
   - RPC_URL or GNOSIS_RPC_URL should be set (or pass via --env)
   - SDAI_TOKEN_ADDRESS is used as default token if --token not provided (falls back to Gnosis sDAI)
+  - Automatically loads .env.seed first (if present), then any --env files, and finally .env if no --env given
 """
 
 import argparse
@@ -115,7 +116,12 @@ def _get_token_balance(w3: Web3, token: str, holder: str) -> int:
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Check wallet xDAI balance and deployed executor token balance for a given HD path")
     p.add_argument("--path", required=True, help="HD derivation path (e.g., m/44'/60'/0'/0/5)")
-    p.add_argument("--env", dest="env_file", help="Path to .env file to load before running")
+    p.add_argument(
+        "--env",
+        dest="env_files",
+        action="append",
+        help=".env file(s) to load (can be passed multiple times). .env.seed is always loaded first if present."
+    )
     p.add_argument("--mnemonic", help="BIP-39 mnemonic to derive the address (preferred)")
     p.add_argument("--mnemonic-env", help="Env var name that holds the mnemonic")
     p.add_argument("--index", help="Wallet index file (default build/wallets/index.json)")
@@ -126,9 +132,27 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
 
-    # Load env file if provided
-    if args.env_file:
-        load_dotenv(args.env_file, override=True)
+    # Load env files with precedence:
+    # 1) .env.seed (if present), 2) any --env files in order, else 3) .env fallback
+    try:
+        seed_env = Path(".env.seed")
+        if seed_env.exists():
+            load_dotenv(str(seed_env), override=False)
+    except Exception:
+        pass
+
+    if getattr(args, "env_files", None):
+        for env_path in args.env_files:
+            try:
+                load_dotenv(env_path, override=False)
+            except Exception:
+                pass
+    else:
+        # Fallback to .env if no explicit files provided
+        try:
+            load_dotenv(".env", override=False)
+        except Exception:
+            pass
 
     # Resolve token address
     token_addr = args.token or os.getenv("SDAI_TOKEN_ADDRESS") or SDAI_GNOSIS_DEFAULT
@@ -183,4 +207,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
