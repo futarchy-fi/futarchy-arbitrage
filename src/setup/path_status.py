@@ -24,6 +24,7 @@ Environment:
 import argparse
 import os
 from pathlib import Path
+import json
 from typing import Optional, Tuple
 
 from web3 import Web3
@@ -126,6 +127,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--mnemonic-env", help="Env var name that holds the mnemonic")
     p.add_argument("--index", help="Wallet index file (default build/wallets/index.json)")
     p.add_argument("--token", help="ERC20 token address for contract balance (default $SDAI_TOKEN_ADDRESS or Gnosis sDAI)")
+    p.add_argument("--json", action="store_true", help="Print result as JSON to stdout")
     return p.parse_args()
 
 
@@ -178,14 +180,27 @@ def main() -> int:
     bal_wei = int(w3.eth.get_balance(address))
     bal_eth = w3.from_wei(bal_wei, "ether")
 
-    print("Wallet")
-    print(f"  Path:      {args.path}")
-    print(f"  Address:   {address}")
-    print(f"  xDAI:      {bal_eth} (wei={bal_wei})")
+    result = {
+        "wallet": {
+            "path": args.path,
+            "address": address,
+            "xdai": str(bal_eth),
+            "xdai_wei": str(bal_wei),
+        }
+    }
+    if not args.json:
+        print("Wallet")
+        print(f"  Path:      {args.path}")
+        print(f"  Address:   {address}")
+        print(f"  xDAI:      {bal_eth} (wei={bal_wei})")
 
     # Deployment lookup by path
     link = find_deploy_link_by_path(args.path)
     if not link:
+        if args.json:
+            result["deployment"] = {"found": False}
+            print(json.dumps(result))
+            return 0
         print("\nDeployment")
         print("  No deployment found for this path (no address in build/wallets/deploy_v5_*.json)")
         return 0
@@ -194,6 +209,18 @@ def main() -> int:
     token_bal_wei = _get_token_balance(w3, token_addr, exec_addr)
     token_bal = w3.from_wei(token_bal_wei, "ether")
 
+    result["deployment"] = {
+        "found": True,
+        "executor": exec_addr,
+        "token": to_checksum_address(token_addr),
+        "balance": str(token_bal),
+        "balance_wei": str(token_bal_wei),
+        "tx": link.tx,
+        "log": link.log_file,
+    }
+    if args.json:
+        print(json.dumps(result))
+        return 0
     print("\nDeployment")
     print(f"  Executor:  {exec_addr}")
     print(f"  Token:     {to_checksum_address(token_addr)}")
