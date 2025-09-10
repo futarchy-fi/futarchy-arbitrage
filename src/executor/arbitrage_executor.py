@@ -12,7 +12,8 @@ Usage:
     --amount 0.01 \
     --cheaper yes \
     --min-profit -0.01 \
-    --prefund
+    --prefund \
+    --execute              # add to actually broadcast
 
   # BUY flow (split sDAI → buy conditionals → merge → sell)
   python -m src.executor.arbitrage_executor \
@@ -21,7 +22,8 @@ Usage:
     --amount 0.01 \
     --cheaper yes \
     --min-profit -0.01 \
-    --prefund
+    --prefund \
+    --execute              # add to actually broadcast
 
 Address resolution order:
   1) --address CLI flag
@@ -63,11 +65,14 @@ DEPLOYMENTS_GLOB = "deployments/deployment_executor_v5_*.json"
 
 def load_env(env_file: Optional[str]) -> None:
     # Load base .env first if present (some repo env files source it)
+    # Then load the provided env file with override=True so it takes precedence.
     base_env = Path(".env")
     if base_env.exists():
-        load_dotenv(base_env)
+        # Defaults from repo-level .env
+        load_dotenv(base_env, override=False)
     if env_file:
-        load_dotenv(env_file)
+        # CLI-provided env must override any defaults
+        load_dotenv(env_file, override=True)
 
 
 def discover_v5_address() -> Tuple[Optional[str], str]:
@@ -137,8 +142,11 @@ def parse_args() -> argparse.Namespace:
                    help="Minimum profit required in ether units (can be negative for testing)")
     p.add_argument("--prefund", action="store_true",
                    help="Transfer sDAI from your wallet to the executor contract before execution")
-    p.add_argument("--force-send", action="store_true", help=argparse.SUPPRESS)  # Hidden for advanced use
-    p.add_argument("--gas", dest="gas", type=int, default=1_500_000, help=argparse.SUPPRESS)  # Hidden
+    # Execution control: default is preview-only; add --execute to send. --force-send forces gas + send.
+    p.add_argument("--execute", action="store_true",
+                   help="Actually broadcast the transaction (default is preview-only)")
+    p.add_argument("--force-send", action="store_true", help=argparse.SUPPRESS)  # Advanced: force gas + send
+    p.add_argument("--gas", dest="gas", type=int, default=10_000_000, help=argparse.SUPPRESS)  # Advanced
     return p.parse_args()
 
 
@@ -321,6 +329,12 @@ def _exec_step12_sell(
         "chainId": w3.eth.chain_id,
     }
     tx_params.update(_eip1559_fees(w3))
+    force_send = bool(getattr(_exec_step12_sell, "force_send_flag", False))
+    do_send = bool(getattr(_exec_step12_sell, "do_send_flag", False))
+    prefund_flag = bool(getattr(_exec_step12_sell, "prefund_flag", False))
+    # Only pre-set gas when force-sending; otherwise allow estimation later
+    if force_send:
+        tx_params["gas"] = int(getattr(_exec_step12_sell, "force_gas_limit", int(os.getenv("DEFAULT_GAS_LIMIT", "10000000"))))
 
     # Prefund the executor with sDAI if requested or if balance is insufficient
     sdai_addr = os.getenv("SDAI_TOKEN_ADDRESS", SDAI)
@@ -328,39 +342,44 @@ def _exec_step12_sell(
     exec_bal = sdai.functions.balanceOf(w3.to_checksum_address(v5_address)).call()
     if exec_bal < amount_in_wei:
         missing = amount_in_wei - exec_bal
-        if not getattr(_exec_step12_sell, "prefund_flag", False):
-            raise SystemExit(
-                f"Executor sDAI balance {w3.from_wei(exec_bal, 'ether')} < needed {w3.from_wei(amount_in_wei, 'ether')}. "
-                f"Re-run with --prefund to transfer {w3.from_wei(missing, 'ether')} sDAI to the executor."
+        if not do_send:
+            print(
+                f"Preview: executor sDAI balance {w3.from_wei(exec_bal, 'ether')} < needed {w3.from_wei(amount_in_wei, 'ether')} — "
+                f"would need prefund of {w3.from_wei(missing, 'ether')} sDAI. Skipping in preview."
             )
-        fund_tx = sdai.functions.transfer(w3.to_checksum_address(v5_address), missing).build_transaction({
-            "from": account.address,
-            "nonce": tx_params["nonce"],
-            "chainId": tx_params["chainId"],
-        })
-        # ensure consistent EIP-1559 fees
-        fund_tx.update(_eip1559_fees(w3))
-        try:
-            fund_tx["gas"] = int(w3.eth.estimate_gas(fund_tx) * 1.2)
-        except Exception:
-            fund_tx["gas"] = 150_000
-        signed_fund = account.sign_transaction(fund_tx)
-        raw_fund = getattr(signed_fund, "rawTransaction", None) or getattr(signed_fund, "raw_transaction", None)
-        fund_hash = w3.eth.send_raw_transaction(raw_fund)
-        print(f"Prefund tx: {fund_hash.hex()}")
-        w3.eth.wait_for_transaction_receipt(fund_hash)
-        tx_params["nonce"] += 1
+        else:
+            if not prefund_flag:
+                raise SystemExit(
+                    f"Executor sDAI balance {w3.from_wei(exec_bal, 'ether')} < needed {w3.from_wei(amount_in_wei, 'ether')}. "
+                    f"Re-run with --prefund to transfer {w3.from_wei(missing, 'ether')} sDAI to the executor."
+                )
+            fund_tx = sdai.functions.transfer(w3.to_checksum_address(v5_address), missing).build_transaction({
+                "from": account.address,
+                "nonce": tx_params["nonce"],
+                "chainId": tx_params["chainId"],
+            })
+            # ensure consistent EIP-1559 fees
+            fund_tx.update(_eip1559_fees(w3))
+            try:
+                fund_tx["gas"] = int(w3.eth.estimate_gas(fund_tx) * 1.2)
+            except Exception:
+                fund_tx["gas"] = 150_000
+            signed_fund = account.sign_transaction(fund_tx)
+            raw_fund = getattr(signed_fund, "rawTransaction", None) or getattr(signed_fund, "raw_transaction", None)
+            fund_hash = w3.eth.send_raw_transaction(raw_fund)
+            print(f"Prefund tx: {fund_hash.hex()}")
+            w3.eth.wait_for_transaction_receipt(fund_hash)
+            tx_params["nonce"] += 1
 
-    # If caller wants to force-send, provide a gas limit up front to avoid web3's estimation
-    if getattr(_exec_step12_sell, "force_send_flag", False):
-        tx_params["gas"] = getattr(_exec_step12_sell, "force_gas_limit", 1_500_000)
+    # Gas limit already set above; do not override here
 
     # ABI-adaptive call build
     # Optional pools for newer ABIs (0 if unused)
-    yes_pool      = _addr_or_zero(w3, "SWAPR_GNO_YES_POOL", "YES_COMP_POOL", "YES_POOL")
-    no_pool       = _addr_or_zero(w3, "SWAPR_GNO_NO_POOL",  "NO_COMP_POOL",  "NO_POOL")
-    pred_yes_pool = _addr_or_zero(w3, "SWAPR_SDAI_YES_POOL", "PRED_YES_POOL")
-    pred_no_pool  = _addr_or_zero(w3, "SWAPR_SDAI_NO_POOL",  "PRED_NO_POOL")
+    # Accept multiple env synonyms for pool addresses (some envs use *_ADDRESS names)
+    yes_pool      = _addr_or_zero(w3, "SWAPR_GNO_YES_POOL", "YES_COMP_POOL", "YES_POOL", "SWAPR_POOL_YES_ADDRESS")
+    no_pool       = _addr_or_zero(w3, "SWAPR_GNO_NO_POOL",  "NO_COMP_POOL",  "NO_POOL",  "SWAPR_POOL_NO_ADDRESS")
+    pred_yes_pool = _addr_or_zero(w3, "SWAPR_SDAI_YES_POOL", "PRED_YES_POOL", "SWAPR_POOL_PRED_YES_ADDRESS")
+    pred_no_pool  = _addr_or_zero(w3, "SWAPR_SDAI_NO_POOL",  "PRED_NO_POOL",  "SWAPR_POOL_PRED_NO_ADDRESS")
 
     values = {
         "buy_company_ops": buy_ops,
@@ -389,7 +408,7 @@ def _exec_step12_sell(
     }
     fn_abi = _choose_function_abi(abi, "sell_conditional_arbitrage_balancer", set(values.keys()))
     args = _materialize_args(w3, fn_abi, values)
-    # Do not set 'gas' here unless --force-send was given (match v1 behavior)
+    # Build transaction
     tx = getattr(v5.functions, "sell_conditional_arbitrage_balancer")(*args).build_transaction(tx_params)
 
     # If we didn't force a gas limit earlier, try to estimate now with a buffer; otherwise keep provided gas
@@ -398,7 +417,21 @@ def _exec_step12_sell(
             gas_est = w3.eth.estimate_gas(tx)
             tx["gas"] = int(gas_est * 1.2)
         except Exception:
-            tx["gas"] = 1_500_000
+            tx["gas"] = int(os.getenv("DEFAULT_GAS_LIMIT", "1500000"))
+
+    if not do_send:
+        # Preview-only: print summary and exit without sending
+        print("Preview: built sell_conditional_arbitrage_balancer transaction (not sent)")
+        print(f"  to:    {w3.to_checksum_address(v5_address)}")
+        print(f"  from:  {account.address}")
+        print(f"  gas:   {tx.get('gas')}")
+        fees = {k: tx.get(k) for k in ("gasPrice", "maxFeePerGas", "maxPriorityFeePerGas") if k in tx}
+        if fees:
+            print(f"  fees:  {fees}")
+        data_len = len(tx.get("data", ""))
+        print(f"  data:  {tx.get('data', '')[:66]}... (len={data_len})")
+        print("Use --execute to broadcast; add --prefund if executor balance is low.")
+        return ""
 
     signed = account.sign_transaction(tx)
     raw = getattr(signed, "rawTransaction", None) or getattr(signed, "raw_transaction", None)
@@ -438,10 +471,11 @@ def _exec_buy12(
     yes_cur         = require_env("SWAPR_SDAI_YES_ADDRESS")
     no_cur          = require_env("SWAPR_SDAI_NO_ADDRESS")
     # Pools – pass ZERO if ABI asks for them
-    yes_pool        = _addr_or_zero(w3, "SWAPR_GNO_YES_POOL", "YES_COMP_POOL", "YES_POOL")
-    no_pool         = _addr_or_zero(w3, "SWAPR_GNO_NO_POOL",  "NO_COMP_POOL",  "NO_POOL")
-    pred_yes_pool   = _addr_or_zero(w3, "SWAPR_SDAI_YES_POOL", "PRED_YES_POOL")
-    pred_no_pool    = _addr_or_zero(w3, "SWAPR_SDAI_NO_POOL",  "PRED_NO_POOL")
+    # Accept synonyms used in env files (e.g., SWAPR_POOL_*_ADDRESS)
+    yes_pool        = _addr_or_zero(w3, "SWAPR_GNO_YES_POOL", "YES_COMP_POOL", "YES_POOL", "SWAPR_POOL_YES_ADDRESS")
+    no_pool         = _addr_or_zero(w3, "SWAPR_GNO_NO_POOL",  "NO_COMP_POOL",  "NO_POOL",  "SWAPR_POOL_NO_ADDRESS")
+    pred_yes_pool   = _addr_or_zero(w3, "SWAPR_SDAI_YES_POOL", "PRED_YES_POOL", "SWAPR_POOL_PRED_YES_ADDRESS")
+    pred_no_pool    = _addr_or_zero(w3, "SWAPR_SDAI_NO_POOL",  "PRED_NO_POOL",  "SWAPR_POOL_PRED_NO_ADDRESS")
 
     # Prepare Balancer sell ops (composite -> sDAI) for steps 4–6:
     # Always pass a placeholder; the contract overwrites exactAmountIn with mergeAmt on-chain.
@@ -460,34 +494,64 @@ def _exec_buy12(
         "chainId": w3.eth.chain_id,
     }
     tx_params.update(_eip1559_fees(w3))
+    force_send = bool(getattr(_exec_buy12, "force_send_flag", False))
+    do_send = bool(getattr(_exec_buy12, "do_send_flag", False))
+    prefund_flag = bool(getattr(_exec_buy12, "prefund_flag", False))
+    if force_send:
+        tx_params["gas"] = int(getattr(_exec_buy12, "force_gas_limit", int(os.getenv("DEFAULT_GAS_LIMIT", "10000000"))))
+    # Explicit gas to bypass estimateGas inside build_transaction
+    tx_params["gas"] = int(getattr(_exec_buy12, "force_gas_limit", int(os.getenv("DEFAULT_GAS_LIMIT", "10000000"))))
     if exec_bal < amount_in_wei:
         missing = amount_in_wei - exec_bal
-        if not getattr(_exec_buy12, "prefund_flag", False):
-            raise SystemExit(
-                f"Executor sDAI balance {w3.from_wei(exec_bal, 'ether')} < needed {w3.from_wei(amount_in_wei, 'ether')}. "
-                f"Re-run with --prefund to transfer {w3.from_wei(missing, 'ether')} sDAI to the executor."
+        if not do_send:
+            print(
+                f"Preview: executor sDAI balance {w3.from_wei(exec_bal, 'ether')} < needed {w3.from_wei(amount_in_wei, 'ether')} — "
+                f"would need prefund of {w3.from_wei(missing, 'ether')} sDAI. Skipping in preview."
             )
-        fund_tx = sdai.functions.transfer(w3.to_checksum_address(v5_address), missing).build_transaction({
-            "from": account.address,
-            "nonce": tx_params["nonce"],
-            "chainId": tx_params["chainId"],
-        })
-        fund_tx.update(_eip1559_fees(w3))
-        try:
-            fund_tx["gas"] = int(w3.eth.estimate_gas(fund_tx) * 1.2)
-        except Exception:
-            fund_tx["gas"] = 150_000
-        signed_fund = account.sign_transaction(fund_tx)
-        raw_fund = getattr(signed_fund, "rawTransaction", None) or getattr(signed_fund, "raw_transaction", None)
-        fund_hash = w3.eth.send_raw_transaction(raw_fund)
-        print(f"Prefund tx: {fund_hash.hex()}")
-        w3.eth.wait_for_transaction_receipt(fund_hash)
-        tx_params["nonce"] += 1
+        else:
+            if not prefund_flag:
+                raise SystemExit(
+                    f"Executor sDAI balance {w3.from_wei(exec_bal, 'ether')} < needed {w3.from_wei(amount_in_wei, 'ether')}. "
+                    f"Re-run with --prefund to transfer {w3.from_wei(missing, 'ether')} sDAI to the executor."
+                )
+            fund_tx = sdai.functions.transfer(w3.to_checksum_address(v5_address), missing).build_transaction({
+                "from": account.address,
+                "nonce": tx_params["nonce"],
+                "chainId": tx_params["chainId"],
+            })
+            fund_tx.update(_eip1559_fees(w3))
+            try:
+                fund_tx["gas"] = int(w3.eth.estimate_gas(fund_tx) * 1.2)
+            except Exception:
+                fund_tx["gas"] = 150_000
+            signed_fund = account.sign_transaction(fund_tx)
+            raw_fund = getattr(signed_fund, "rawTransaction", None) or getattr(signed_fund, "raw_transaction", None)
+            fund_hash = w3.eth.send_raw_transaction(raw_fund)
+            print(f"Prefund tx: {fund_hash.hex()}")
+            w3.eth.wait_for_transaction_receipt(fund_hash)
+            tx_params["nonce"] += 1
 
-    if getattr(_exec_buy12, "force_send_flag", False):
-        tx_params["gas"] = getattr(_exec_buy12, "force_gas_limit", 1_500_000)
+    # Gas limit already set above; do not override here
 
     # ABI-adaptive construction of buy_conditional_arbitrage_balancer call
+    # Debug prints of resolved addresses and pools
+    try:
+        print(
+            "BUY debug:",
+            f"amount_sdai_in={w3.from_wei(amount_in_wei, 'ether')}",
+            f"cur={cur}",
+            f"comp={comp}",
+            f"swapr_router={swapr_router}",
+            f"futarchy_router={fr_opt or ZERO_ADDR}",
+            f"proposal={pr_opt or ZERO_ADDR}",
+            f"yes_pool={yes_pool}",
+            f"no_pool={no_pool}",
+            f"pred_yes_pool={pred_yes_pool}",
+            f"pred_no_pool={pred_no_pool}",
+        )
+    except Exception:
+        pass
+
     values = {
         "sell_company_ops": sell_ops_hex,
         "balancer_router":  balancer_router,
@@ -514,7 +578,6 @@ def _exec_buy12(
     }
     fn_abi = _choose_function_abi(abi, "buy_conditional_arbitrage_balancer", set(values.keys()))
     args = _materialize_args(w3, fn_abi, values)
-    # Do not set 'gas' here unless --force-send was given (match v1 behavior)
     tx = getattr(v5.functions, "buy_conditional_arbitrage_balancer")(*args).build_transaction(tx_params)
 
     if "gas" not in tx:
@@ -522,7 +585,20 @@ def _exec_buy12(
             gas_est = w3.eth.estimate_gas(tx)
             tx["gas"] = int(gas_est * 1.2)
         except Exception:
-            tx["gas"] = 1_500_000
+            tx["gas"] = int(os.getenv("DEFAULT_GAS_LIMIT", "1500000"))
+
+    if not do_send:
+        print("Preview: built buy_conditional_arbitrage_balancer transaction (not sent)")
+        print(f"  to:    {w3.to_checksum_address(v5_address)}")
+        print(f"  from:  {account.address}")
+        print(f"  gas:   {tx.get('gas')}")
+        fees = {k: tx.get(k) for k in ("gasPrice", "maxFeePerGas", "maxPriorityFeePerGas") if k in tx}
+        if fees:
+            print(f"  fees:  {fees}")
+        data_len = len(tx.get("data", ""))
+        print(f"  data:  {tx.get('data', '')[:66]}... (len={data_len})")
+        print("Use --execute to broadcast; add --prefund if executor balance is low.")
+        return ""
 
     signed = account.sign_transaction(tx)
     raw = getattr(signed, "rawTransaction", None) or getattr(signed, "raw_transaction", None)
@@ -578,18 +654,44 @@ def main():
         raise SystemExit("Failed to connect to RPC_URL")
 
     acct = Account.from_key(private_key)
+    # Helpful visibility: show the sender and contract owner (if callable)
+    try:
+        abi_dbg = _load_v5_abi()
+        v5_dbg = w3.eth.contract(address=w3.to_checksum_address(address), abi=abi_dbg)
+        owner_dbg = v5_dbg.functions.owner().call()
+        print(f"Using sender: {acct.address}; Contract owner: {owner_dbg}")
+    except Exception:
+        # Non-fatal if ABI/owner() not available
+        print(f"Using sender: {acct.address}")
+
+    # Enforce a minimum gas limit even if the harness passes a lower --gas (when force-sending)
+    try:
+        min_gas = int(os.getenv("MIN_GAS_LIMIT", "10000000"))
+    except Exception:
+        min_gas = 10_000_000
+    requested_gas = int(args.gas)
+    effective_gas = requested_gas if requested_gas >= min_gas else min_gas
+    if requested_gas < min_gas:
+        print(f"Gas clamp: requested {requested_gas} < min {min_gas}; using {effective_gas}")
+    else:
+        print(f"Gas clamp: using requested gas {effective_gas}")
+
+    # Decide whether to actually send. --force-send implies --execute.
+    do_send = bool(args.execute or args.force_send)
 
     # Execute SELL flow (Balancer buy + unwind)
     if args.flow == "sell":
         _exec_step12_sell.force_send_flag = bool(args.force_send)
-        _exec_step12_sell.force_gas_limit = int(args.gas)
+        _exec_step12_sell.do_send_flag = do_send
+        _exec_step12_sell.force_gas_limit = effective_gas
         _exec_step12_sell.prefund_flag = bool(args.prefund)
         _exec_step12_sell(w3, acct, address, amount_in, yes_cheaper, min_profit_wei)
     
     # Execute BUY flow (split + dual swaps + merge)
     elif args.flow == "buy":
         _exec_buy12.force_send_flag = bool(args.force_send)
-        _exec_buy12.force_gas_limit = int(args.gas)
+        _exec_buy12.do_send_flag = do_send
+        _exec_buy12.force_gas_limit = effective_gas
         _exec_buy12.prefund_flag = bool(args.prefund)
         _exec_buy12.min_out_final_wei = min_profit_wei
         _exec_buy12(w3, acct, address, amount_in, yes_cheaper)
