@@ -695,7 +695,11 @@ class ArbitrageBot:
         
         if prefund:
             cmd.append("--prefund")
-            
+
+        # Default executor behavior is preview-only; add --execute for live runs
+        if not dry_run:
+            cmd.append("--execute")
+
         if dry_run:
             print(f"\n[DRY RUN] Would execute: {' '.join(cmd)}")
             return True, None
