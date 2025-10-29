@@ -24,14 +24,17 @@ class ConfigManager:
     def __init__(self):
         """Initialize ConfigManager with environment variables."""
         # Only these come from .env
+        service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        anon_key = os.getenv("SUPABASE_ANON_KEY")
+
         self.supabase_url = os.getenv("SUPABASE_URL")
-        self.supabase_key = os.getenv("SUPABASE_ANON_KEY")
-        self.master_key = os.getenv("MASTER_PRIVATE_KEY")
+        self.supabase_key = anon_key or service_key
+        self.master_key = os.getenv("MASTER_PRIVATE_KEY") or os.getenv("PRIVATE_KEY")
         
         if not all([self.supabase_url, self.supabase_key, self.master_key]):
             raise ValueError(
                 "Missing required environment variables: "
-                "SUPABASE_URL, SUPABASE_ANON_KEY, MASTER_PRIVATE_KEY"
+                "SUPABASE_URL, SUPABASE_(ANON_KEY | SERVICE_ROLE_KEY), MASTER_PRIVATE_KEY/PRIVATE_KEY"
             )
         
         self.supabase: Client = create_client(self.supabase_url, self.supabase_key)

@@ -5,10 +5,7 @@ Each bot gets a unique derived key based on its derivation path.
 """
 
 from eth_account import Account
-from eth_account.hdaccount import HDPrivateKey, HDPath
-from eth_account.hdaccount.mnemonic import Mnemonic
 import hashlib
-from typing import Optional
 import logging
 
 logger = logging.getLogger(__name__)
